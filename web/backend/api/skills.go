@@ -1104,5 +1104,16 @@ func builtinSkillsDir() string {
 	if err != nil {
 		return ""
 	}
+	candidates := []string{
+		filepath.Join(wd, "skills"),
+		filepath.Join(wd, "workspace", "skills"),
+		filepath.Join(wd, "..", "skills"),
+		filepath.Join(wd, "..", "workspace", "skills"),
+	}
+	for _, c := range candidates {
+		if fi, err := os.Stat(c); err == nil && fi.IsDir() {
+			return c
+		}
+	}
 	return filepath.Join(wd, "skills")
 }

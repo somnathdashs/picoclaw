@@ -7,7 +7,7 @@ import { showSaveSuccessOrRestartToast } from "@/lib/restart-required"
 import { refreshGatewayState } from "@/store/gateway"
 
 interface UseChatModelsOptions {
-  isConnected: boolean
+  isConnected?: boolean
 }
 
 function isLocalModel(model: ModelInfo): boolean {
@@ -21,7 +21,7 @@ function isLocalModel(model: ModelInfo): boolean {
   )
 }
 
-export function useChatModels({ isConnected }: UseChatModelsOptions) {
+export function useChatModels({ isConnected = false }: UseChatModelsOptions = {}) {
   const { t } = useTranslation()
   const [modelList, setModelList] = useState<ModelInfo[]>([])
   const [defaultModelName, setDefaultModelName] = useState("")

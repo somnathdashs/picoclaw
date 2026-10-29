@@ -60,12 +60,19 @@ type UserDefinition struct {
 	Content string `json:"content"`
 }
 
+// RuleDefinition represents the resolved RULES.md file linked to the workspace.
+type RuleDefinition struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
 // AgentContextDefinition captures the workspace agent definition in a runtime-friendly shape.
 type AgentContextDefinition struct {
 	Source AgentDefinitionSource  `json:"source,omitempty"`
 	Agent  *AgentPromptDefinition `json:"agent,omitempty"`
 	Soul   *SoulDefinition        `json:"soul,omitempty"`
 	User   *UserDefinition        `json:"user,omitempty"`
+	Rule   *RuleDefinition        `json:"rule,omitempty"`
 }
 
 // LoadAgentDefinition parses the workspace agent bootstrap files.
@@ -80,6 +87,7 @@ func (cb *ContextBuilder) LoadAgentDefinition() AgentContextDefinition {
 func loadAgentDefinition(workspace string) AgentContextDefinition {
 	definition := AgentContextDefinition{}
 	definition.User = loadUserDefinition(workspace)
+	definition.Rule = loadRuleDefinition(workspace)
 	agentPath := filepath.Join(workspace, string(AgentDefinitionSourceAgent))
 	if content, err := os.ReadFile(agentPath); err == nil {
 		prompt := parseAgentPromptDefinition(agentPath, string(content))
@@ -123,6 +131,7 @@ func (definition AgentContextDefinition) trackedPaths(workspace string) []string
 		filepath.Join(workspace, string(AgentDefinitionSourceAgent)),
 		filepath.Join(workspace, "SOUL.md"),
 		filepath.Join(workspace, "USER.md"),
+		filepath.Join(workspace, "RULES.md"),
 	}
 	if definition.Source != AgentDefinitionSourceAgent {
 		paths = append(paths,
@@ -131,6 +140,17 @@ func (definition AgentContextDefinition) trackedPaths(workspace string) []string
 		)
 	}
 	return uniquePaths(paths)
+}
+
+func loadRuleDefinition(workspace string) *RuleDefinition {
+	rulePath := filepath.Join(workspace, "RULES.md")
+	if content, err := os.ReadFile(rulePath); err == nil {
+		return &RuleDefinition{
+			Path:    rulePath,
+			Content: string(content),
+		}
+	}
+	return nil
 }
 
 func loadUserDefinition(workspace string) *UserDefinition {

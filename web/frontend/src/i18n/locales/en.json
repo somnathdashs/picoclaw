@@ -1,6 +1,9 @@
 {
   "navigation": {
+    "workspace": "Workspace",
+    "dashboard": "Dashboard",
     "chat": "Chat",
+    "automations": "Automations",
     "model_group": "Models",
     "models": "Models",
     "credentials": "Credentials",
@@ -13,7 +16,12 @@
     "show_more_channels": "More",
     "show_less_channels": "Less",
     "config": "Config",
-    "logs": "Logs"
+    "logs": "Logs",
+    "more": "More",
+    "chat_history": "Chat History",
+    "search_chats": "Search chats...",
+    "view_more": "View more",
+    "no_chats_found": "No chats found"
   },
   "launcherLogin": {
     "title": "Sign in",
@@ -52,6 +60,9 @@
       "noDefaultModel": "Unable to chat: No default model is selected. Set a default model on the Models page."
     },
     "newChat": "New Chat",
+    "rules": "Rules",
+    "modelRules": "Model Rules",
+    "globalRules": "Global Rules",
     "notConnected": "Gateway is not running. Start it to chat.",
     "thinking": {
       "step1": "Thinking...",
@@ -118,7 +129,11 @@
       "apikey": "API Key",
       "oauth": "OAuth",
       "local": "Local"
-    }
+    },
+    "modelSelector": "Select AI Model",
+    "searchModels": "Search models...",
+    "noModelsFound": "No matching models found",
+    "allModels": "All"
   },
   "header": {
     "logout": {

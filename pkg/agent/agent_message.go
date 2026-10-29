@@ -4,12 +4,14 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/constants"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/providers"
 	"github.com/sipeed/picoclaw/pkg/routing"
 	"github.com/sipeed/picoclaw/pkg/session"
 	"github.com/sipeed/picoclaw/pkg/utils"
@@ -176,6 +178,17 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 			"route_main_session": allocation.MainSessionKey,
 		})
 
+	var branchHistory []providers.Message
+	branchHistoryProvided := false
+	if msg.Context.Raw != nil {
+		if rawBH, ok := msg.Context.Raw["branch_history"]; ok && strings.TrimSpace(rawBH) != "" {
+			branchHistoryProvided = true
+			if err := json.Unmarshal([]byte(rawBH), &branchHistory); err != nil {
+				logger.WarnCF("agent", "Failed to parse branch_history from inbound context", map[string]any{"error": err.Error()})
+			}
+		}
+	}
+
 	opts := processOptions{
 		Dispatch: DispatchRequest{
 			SessionKey:     sessionKey,
@@ -186,6 +199,8 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 			UserMessage:    msg.Content,
 			Media:          append([]string(nil), msg.Media...),
 		},
+		BranchHistory:           branchHistory,
+		BranchHistoryProvided:   branchHistoryProvided,
 		SenderID:                msg.SenderID,
 		SenderDisplayName:       msg.Sender.DisplayName,
 		DefaultResponse:         defaultResponse,

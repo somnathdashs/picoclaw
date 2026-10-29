@@ -38,10 +38,12 @@ function LauncherLoginPage() {
       .then((s) => {
         if (!s.initialized) {
           globalThis.location.assign("/launcher-setup")
+        } else if (s.authenticated) {
+          globalThis.location.assign("/dashboard")
         }
       })
       .catch(() => {
-        /* network error — stay on login page */
+        /* wait for user or server */
       })
   }, [])
 
@@ -52,7 +54,7 @@ function LauncherLoginPage() {
       try {
         const result = await postLauncherDashboardLogin(passwordValue)
         if (result.ok) {
-          globalThis.location.assign("/")
+          globalThis.location.assign("/dashboard")
           return
         }
         if (result.status === 409) {

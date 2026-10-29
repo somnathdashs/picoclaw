@@ -31,7 +31,25 @@ const BASE_URL = ""
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await launcherFetch(`${BASE_URL}${path}`, options)
   if (!res.ok) {
-    throw new Error(`API error: ${res.status} ${res.statusText}`)
+    let detail = ""
+    try {
+      const text = await res.text()
+      if (text) {
+        try {
+          const parsed = JSON.parse(text)
+          detail = parsed.message || parsed.error || text
+        } catch {
+          detail = text.trim()
+        }
+      }
+    } catch {
+      // ignore body parse failure
+    }
+    throw new Error(
+      detail
+        ? `API error: ${res.status} ${res.statusText} (${detail})`
+        : `API error: ${res.status} ${res.statusText}`,
+    )
   }
   return res.json() as Promise<T>
 }

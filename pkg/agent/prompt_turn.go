@@ -18,6 +18,7 @@ func promptBuildRequestForTurn(
 ) PromptBuildRequest {
 	req := PromptBuildRequest{
 		History:           history,
+		BranchHistory:     append([]providers.Message(nil), ts.opts.BranchHistory...),
 		Summary:           summary,
 		CurrentMessage:    currentMessage,
 		Media:             append([]string(nil), media...),
@@ -81,6 +82,7 @@ func promptBuildRequestForProcessOptions(
 ) PromptBuildRequest {
 	req := PromptBuildRequest{
 		History:           history,
+		BranchHistory:     append([]providers.Message(nil), opts.BranchHistory...),
 		Summary:           summary,
 		CurrentMessage:    currentMessage,
 		Media:             append([]string(nil), media...),

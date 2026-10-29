@@ -10,6 +10,10 @@ import {
   type ContextUsage,
   updateChatStore,
 } from "@/store/chat"
+import {
+  saveSessionBranches,
+  syncActiveBranches,
+} from "@/features/chat/branches"
 
 export interface PicoMessage {
   type: string
@@ -119,8 +123,8 @@ export function handlePicoMessage(
           ? normalizeUnixTimestamp(Number(message.timestamp))
           : Date.now()
 
-      updateChatStore((prev) => ({
-        messages: [
+      updateChatStore((prev) => {
+        const nextMessages = syncActiveBranches([
           ...prev.messages,
           {
             id: messageId,
@@ -132,14 +136,20 @@ export function handlePicoMessage(
             attachments,
             timestamp,
           },
-        ],
-        isTyping:
-          !isPlaceholder &&
-          (kind === "normal" || message.type === "media.create")
-            ? false
-            : prev.isTyping,
-        ...(contextUsage ? { contextUsage } : {}),
-      }))
+        ])
+        if (expectedSessionId) {
+          saveSessionBranches(expectedSessionId, nextMessages)
+        }
+        return {
+          messages: nextMessages,
+          isTyping:
+            !isPlaceholder &&
+            (kind === "normal" || message.type === "media.create")
+              ? false
+              : prev.isTyping,
+          ...(contextUsage ? { contextUsage } : {}),
+        }
+      })
       break
     }
 
@@ -157,49 +167,54 @@ export function handlePicoMessage(
         break
       }
 
-      updateChatStore((prev) => ({
-        messages: (() => {
-          let found = false
-          const messages = prev.messages.map((msg) => {
-            if (msg.id !== messageId) {
-              return msg
-            }
-            found = true
-            const { content, kind, toolCalls } =
-              parseAssistantMessageUpdateState(payload, msg)
-            return {
-              ...msg,
-              id: messageId,
-              content,
-              kind,
-              toolCalls,
-              ...(modelName ? { modelName } : {}),
-              ...(attachments ? { attachments } : {}),
-            }
-          })
-          if (found) {
-            return messages
+      updateChatStore((prev) => {
+        let found = false
+        const messages = prev.messages.map((msg) => {
+          if (msg.id !== messageId) {
+            return msg
           }
-
+          found = true
           const { content, kind, toolCalls } =
-            parseAssistantMessageUpdateState(payload)
+            parseAssistantMessageUpdateState(payload, msg)
+          return {
+            ...msg,
+            id: messageId,
+            content,
+            kind,
+            toolCalls,
+            ...(modelName ? { modelName } : {}),
+            ...(attachments ? { attachments } : {}),
+          }
+        })
+        const updated = found
+          ? messages
+          : (() => {
+              const { content, kind, toolCalls } =
+                parseAssistantMessageUpdateState(payload)
+              return [
+                ...messages,
+                {
+                  id: messageId,
+                  role: "assistant" as const,
+                  content,
+                  kind,
+                  toolCalls,
+                  ...(modelName ? { modelName } : {}),
+                  ...(attachments ? { attachments } : {}),
+                  timestamp,
+                },
+              ]
+            })()
 
-          return [
-            ...messages,
-            {
-              id: messageId,
-              role: "assistant" as const,
-              content,
-              kind,
-              toolCalls,
-              ...(modelName ? { modelName } : {}),
-              ...(attachments ? { attachments } : {}),
-              timestamp,
-            },
-          ]
-        })(),
-        ...(contextUsage ? { contextUsage } : {}),
-      }))
+        const nextMessages = syncActiveBranches(updated)
+        if (expectedSessionId) {
+          saveSessionBranches(expectedSessionId, nextMessages)
+        }
+        return {
+          messages: nextMessages,
+          ...(contextUsage ? { contextUsage } : {}),
+        }
+      })
       break
     }
 

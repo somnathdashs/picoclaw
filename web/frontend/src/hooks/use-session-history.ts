@@ -1,23 +1,39 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 
-import { type SessionSummary, deleteSession, getSessions } from "@/api/sessions"
+import {
+  type SessionSummary,
+  clearSessions,
+  deleteSession,
+  getCachedSessions,
+  getSessions,
+} from "@/api/sessions"
 
-const LIMIT = 20
+const DEFAULT_LIMIT = 50
 
 interface UseSessionHistoryOptions {
   activeSessionId: string
   onDeletedActiveSession: () => void
+  limit?: number
+  sessionType?: string
+  sender?: string
+  query?: string
 }
 
 export function useSessionHistory({
   activeSessionId,
   onDeletedActiveSession,
+  limit = DEFAULT_LIMIT,
+  sessionType,
+  sender,
+  query,
 }: UseSessionHistoryOptions) {
   const { t } = useTranslation()
   const observerRef = useRef<HTMLDivElement>(null)
-  const [sessions, setSessions] = useState<SessionSummary[]>([])
-  const [offset, setOffset] = useState(0)
+  const offsetRef = useRef(0)
+  const [sessions, setSessions] = useState<SessionSummary[]>(() =>
+    getCachedSessions(),
+  )
   const [hasMore, setHasMore] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [loadError, setLoadError] = useState(false)
@@ -25,17 +41,17 @@ export function useSessionHistory({
   const loadSessions = useCallback(
     async (reset = true) => {
       try {
-        const currentOffset = reset ? 0 : offset
+        const currentOffset = reset ? 0 : offsetRef.current
         if (reset) {
           setLoadError(false)
           setHasMore(true)
-          setOffset(0)
+          offsetRef.current = 0
         }
 
-        const data = await getSessions(currentOffset, LIMIT)
+        const data = await getSessions(currentOffset, limit, sessionType, sender, query)
         setLoadError(false)
 
-        if (data.length < LIMIT) {
+        if (data.length < limit) {
           setHasMore(false)
         }
 
@@ -49,7 +65,7 @@ export function useSessionHistory({
           })
         }
 
-        setOffset(currentOffset + data.length)
+        offsetRef.current = currentOffset + data.length
       } catch (err) {
         console.error("Failed to fetch session history:", err)
         setLoadError(true)
@@ -60,8 +76,12 @@ export function useSessionHistory({
         setIsLoadingMore(false)
       }
     },
-    [offset],
+    [limit, sessionType, sender, query],
   )
+
+  useEffect(() => {
+    void loadSessions(true)
+  }, [loadSessions])
 
   useEffect(() => {
     if (!observerRef.current || !hasMore || isLoadingMore || loadError) return
@@ -94,7 +114,7 @@ export function useSessionHistory({
         await deleteSession(id)
         setSessions((prev) => prev.filter((s) => s.id !== id))
         if (deletedLoadedSession) {
-          setOffset((prev) => Math.max(prev - 1, 0))
+          offsetRef.current = Math.max(offsetRef.current - 1, 0)
         }
         if (id === activeSessionId) {
           onDeletedActiveSession()
@@ -106,6 +126,33 @@ export function useSessionHistory({
     [activeSessionId, onDeletedActiveSession, sessions],
   )
 
+  const handleClearAllSessions = useCallback(
+    async (typeToClear?: string) => {
+      try {
+        const effectiveType = typeToClear ?? sessionType
+        await clearSessions(effectiveType)
+        if (!effectiveType || effectiveType === "all") {
+          setSessions([])
+          onDeletedActiveSession()
+        } else {
+          setSessions((prev) =>
+            prev.filter((s) =>
+              effectiveType === "web"
+                ? s.type !== "web"
+                : s.type !== effectiveType && s.channel !== effectiveType,
+            ),
+          )
+        }
+        offsetRef.current = 0
+        void loadSessions(true)
+      } catch (err) {
+        console.error("Failed to clear sessions:", err)
+        throw err
+      }
+    },
+    [loadSessions, onDeletedActiveSession, sessionType],
+  )
+
   return {
     sessions,
     hasMore,
@@ -114,5 +161,6 @@ export function useSessionHistory({
     observerRef,
     loadSessions,
     handleDeleteSession,
+    handleClearAllSessions,
   }
 }

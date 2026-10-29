@@ -29,6 +29,7 @@ import { SlackForm } from "@/components/channels/channel-forms/slack-form"
 import { TelegramForm } from "@/components/channels/channel-forms/telegram-form"
 import { WecomForm } from "@/components/channels/channel-forms/wecom-form"
 import { WeixinForm } from "@/components/channels/channel-forms/weixin-form"
+import { WhatsappForm } from "@/components/channels/channel-forms/whatsapp-form"
 import { ConfigChangeNotice } from "@/components/config-change-notice"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
@@ -106,11 +107,8 @@ function normalizeConfig(
   rawConfig: ChannelConfig,
 ): ChannelConfig {
   const config = { ...rawConfig }
-  if (channel.name === "whatsapp_native") {
-    config.use_native = true
-  }
-  if (channel.name === "whatsapp") {
-    config.use_native = false
+  if (channel.name === "whatsapp" || channel.name === "whatsapp_native") {
+    config.use_native = config.use_native !== false
   }
   return config
 }
@@ -155,11 +153,8 @@ function buildSavePayload(
     }
   }
 
-  if (channel.name === "whatsapp_native") {
-    settings.use_native = true
-  }
-  if (channel.name === "whatsapp") {
-    settings.use_native = false
+  if (channel.name === "whatsapp" || channel.name === "whatsapp_native") {
+    settings.use_native = editConfig.use_native !== false
   }
 
   if (Object.keys(settings).length > 0) {
@@ -283,7 +278,6 @@ const CHANNELS_WITHOUT_DOCS = new Set([
   "matrix",
   "irc",
   "whatsapp",
-  "whatsapp_native",
   "mqtt",
 ])
 
@@ -419,15 +413,8 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
   const hidesPageLevelEnableToggle = channel?.name === "wecom"
 
   const hiddenKeys = useMemo(() => {
-    if (!channel) return []
-    if (channel.name === "whatsapp") {
-      return ["use_native"]
-    }
-    if (channel.name === "whatsapp_native") {
-      return ["use_native", "bridge_url"]
-    }
     return []
-  }, [channel])
+  }, [])
   const requiredKeys = useMemo(
     () => getRequiredFieldKeys(channelName),
     [channelName],
@@ -667,6 +654,17 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
               arrayFieldResetVersion={arrayFieldResetVersion}
             />
           </>
+        )
+      case "whatsapp":
+      case "whatsapp_native":
+        return (
+          <WhatsappForm
+            config={editConfig}
+            onChange={handleChange}
+            fieldErrors={fieldErrors}
+            registerArrayFieldFlusher={registerArrayFieldFlusher}
+            arrayFieldResetVersion={arrayFieldResetVersion}
+          />
         )
       default:
         return (

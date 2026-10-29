@@ -40,7 +40,6 @@ const CHANNEL_IMPORTANCE_TAIL = [
   "maixcam",
   "irc",
   "whatsapp",
-  "whatsapp_native",
 ]
 
 function getChannelImportanceOrder(language: string): string[] {
@@ -101,12 +100,8 @@ function isChannelEnabled(
     return false
   }
 
-  // whatsapp / whatsapp_native share one config block and are split by use_native.
-  if (channel.name === "whatsapp_native") {
-    return channelConfig.use_native === true
-  }
   if (channel.name === "whatsapp") {
-    return channelConfig.use_native !== true
+    return channelConfig.enabled === true
   }
 
   return true
@@ -153,8 +148,11 @@ export function useSidebarChannels({ language, t }: UseSidebarChannelsOptions) {
         if (shouldApply && !shouldApply()) {
           return
         }
-        setChannels(catalog.channels)
-        setEnabledMap(buildChannelEnabledMap(catalog.channels, appConfig))
+        const filteredChannels = catalog.channels.filter(
+          (c) => c.name !== "whatsapp_native",
+        )
+        setChannels(filteredChannels)
+        setEnabledMap(buildChannelEnabledMap(filteredChannels, appConfig))
       })
       .catch(() => {
         if (shouldApply && !shouldApply()) {

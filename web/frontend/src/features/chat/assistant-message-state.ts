@@ -1,3 +1,4 @@
+import { extractThinkTags } from "@/features/chat/thinking"
 import {
   parseToolCallsFromContent,
   parseToolCallsValue,
@@ -32,6 +33,7 @@ function normalizeAssistantMessageKind(
 function parseAssistantMessageKind(
   payload: Record<string, unknown>,
   toolCalls?: AssistantToolCalls,
+  content?: string,
 ): AssistantMessageKind {
   const kind = normalizeAssistantMessageKind(payload)
   if (kind === "thought") {
@@ -39,6 +41,12 @@ function parseAssistantMessageKind(
   }
   if (kind === "tool_calls" || toolCalls) {
     return "tool_calls"
+  }
+  if (content) {
+    const think = extractThinkTags(content)
+    if (think.thought && !think.cleanContent) {
+      return "thought"
+    }
   }
   return "normal"
 }
@@ -70,7 +78,7 @@ export function parseAssistantMessageCreateState(
 
   return {
     content,
-    kind: parseAssistantMessageKind(payload, toolCalls),
+    kind: parseAssistantMessageKind(payload, toolCalls, content),
     toolCalls,
   }
 }
@@ -83,7 +91,7 @@ export function parseAssistantMessageUpdateState(
   const toolCalls = parseAssistantToolCalls(payload, content)
 
   if (hasExplicitAssistantKindPayload(payload)) {
-    const kind = parseAssistantMessageKind(payload, toolCalls)
+    const kind = parseAssistantMessageKind(payload, toolCalls, content)
     return {
       content,
       kind,
@@ -99,19 +107,30 @@ export function parseAssistantMessageUpdateState(
     }
   }
 
-  if (existing?.kind === "thought" || existing?.kind === "tool_calls") {
+  if (existing?.kind === "thought") {
     return {
       content,
-      kind: "normal",
+      kind: "thought",
       toolCalls: undefined,
     }
   }
 
-  if (existing?.toolCalls) {
+  if (existing?.kind === "tool_calls") {
     return {
       content,
-      kind: existing.kind ?? "normal",
-      toolCalls: undefined,
+      kind: "tool_calls",
+      toolCalls: existing.toolCalls,
+    }
+  }
+
+  if (content) {
+    const think = extractThinkTags(content)
+    if (think.thought && !think.cleanContent) {
+      return {
+        content,
+        kind: "thought",
+        toolCalls: undefined,
+      }
     }
   }
 

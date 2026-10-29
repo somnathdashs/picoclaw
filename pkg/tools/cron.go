@@ -132,6 +132,14 @@ func (t *CronTool) Parameters() map[string]any {
 				"type":        "string",
 				"description": "Job ID (for get/update/remove/enable/disable)",
 			},
+			"channel": map[string]any{
+				"type":        "string",
+				"description": "Optional: Target channel to deliver the scheduled reminder or command output to (e.g. 'whatsapp', 'telegram', 'discord', 'slack', etc.). Defaults to current channel.",
+			},
+			"to": map[string]any{
+				"type":        "string",
+				"description": "Optional: Recipient, phone number, or chat ID to deliver output to. Defaults to current chat.",
+			},
 		},
 		"required": []string{"action"},
 	}
@@ -168,8 +176,17 @@ func (t *CronTool) addJob(ctx context.Context, args map[string]any) *ToolResult 
 	channel := ToolChannel(ctx)
 	chatID := ToolChatID(ctx)
 
+	if targetChannel, ok := args["channel"].(string); ok && strings.TrimSpace(targetChannel) != "" {
+		channel = strings.TrimSpace(targetChannel)
+	}
+	if targetTo, ok := args["to"].(string); ok && strings.TrimSpace(targetTo) != "" {
+		chatID = strings.TrimSpace(targetTo)
+	} else if targetTo, ok := args["deliver_to"].(string); ok && strings.TrimSpace(targetTo) != "" {
+		chatID = strings.TrimSpace(targetTo)
+	}
+
 	if channel == "" || chatID == "" {
-		return ErrorResult("no session context (channel/chat_id not set). Use this tool in an active conversation.")
+		return ErrorResult("no session context (channel/chat_id not set). Provide channel and to parameters.")
 	}
 
 	message, ok := args["message"].(string)
@@ -362,6 +379,21 @@ func (t *CronTool) updateJob(ctx context.Context, args map[string]any) *ToolResu
 			return errResult
 		}
 		job.Payload.Command = command
+		patches++
+	}
+
+	channelStr, channelPresent, _ := optionalNonEmptyString(args, "channel")
+	if channelPresent {
+		job.Payload.Channel = channelStr
+		patches++
+	}
+
+	toStr, toPresent, _ := optionalNonEmptyString(args, "to")
+	if !toPresent {
+		toStr, toPresent, _ = optionalNonEmptyString(args, "deliver_to")
+	}
+	if toPresent {
+		job.Payload.To = toStr
 		patches++
 	}
 

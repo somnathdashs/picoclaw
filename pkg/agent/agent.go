@@ -98,6 +98,8 @@ type processOptions struct {
 	ForcedSkills            []string        // Skills explicitly requested for this message
 	TurnProfile             config.EffectiveTurnProfile
 	SystemPromptOverride    string                 // Override the default system prompt (Used by SubTurns)
+	BranchHistory           []providers.Message    // Explicit active branch history for prompt
+	BranchHistoryProvided   bool                   // True if branch history was explicitly passed
 	Media                   []string               // media:// refs from inbound message
 	InitialSteeringMessages []providers.Message    // Steering messages from refactor/agent
 	DefaultResponse         string                 // Response when LLM returns empty

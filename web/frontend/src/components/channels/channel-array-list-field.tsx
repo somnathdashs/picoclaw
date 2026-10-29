@@ -24,11 +24,16 @@ type RegisterArrayFieldFlusher = (
   flusher: ArrayFieldFlusher | null,
 ) => void
 
-function areStringArraysEqual(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) {
+function areStringArraysEqual(
+  left: string[] = [],
+  right: string[] = [],
+): boolean {
+  const l = left || []
+  const r = right || []
+  if (l.length !== r.length) {
     return false
   }
-  return left.every((item, index) => item === right[index])
+  return l.every((item, index) => item === r[index])
 }
 
 interface ChannelArrayListFieldProps {
@@ -36,7 +41,7 @@ interface ChannelArrayListFieldProps {
   hint?: string
   error?: string
   required?: boolean
-  value: string[]
+  value?: string[]
   onChange: (value: string[]) => void
   placeholder?: string
   parser?: StringListParser
@@ -50,7 +55,7 @@ export function ChannelArrayListField({
   hint,
   error,
   required,
-  value,
+  value = [],
   onChange,
   placeholder,
   parser = parseConservativeStringListInput,
@@ -58,17 +63,19 @@ export function ChannelArrayListField({
   registerFlusher,
   resetVersion,
 }: ChannelArrayListFieldProps) {
+  const safeValue = value || []
   const { t } = useTranslation()
   const [draft, setDraft] = useState("")
   const draftRef = useRef("")
-  const valueRef = useRef(value)
-  const localValueRef = useRef(value)
+  const valueRef = useRef(safeValue)
+  const localValueRef = useRef(safeValue)
   const parserRef = useRef(parser)
   const onChangeRef = useRef(onChange)
 
   useEffect(() => {
-    valueRef.current = value
-    localValueRef.current = value
+    const next = value || []
+    valueRef.current = next
+    localValueRef.current = next
   }, [value])
 
   useEffect(() => {
@@ -123,7 +130,7 @@ export function ChannelArrayListField({
   }
 
   const handleRemove = (index: number) => {
-    const nextValue = value.filter((_, itemIndex) => itemIndex !== index)
+    const nextValue = safeValue.filter((_, itemIndex) => itemIndex !== index)
     localValueRef.current = nextValue
     onChangeRef.current(nextValue)
   }
@@ -131,9 +138,9 @@ export function ChannelArrayListField({
   return (
     <Field label={label} hint={hint} error={error} required={required}>
       <div className="space-y-3">
-        {value.length > 0 && (
+        {safeValue.length > 0 && (
           <div className="flex flex-wrap gap-2">
-            {value.map((item, index) => (
+            {safeValue.map((item, index) => (
               <span
                 key={`${item}-${index}`}
                 className="bg-muted text-foreground inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-xs"

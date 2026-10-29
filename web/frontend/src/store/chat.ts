@@ -27,6 +27,8 @@ export interface ChatToolCallFunction {
 
 export interface ChatToolCallExtraContent {
   toolFeedbackExplanation?: string
+  result?: unknown
+  output?: unknown
 }
 
 export interface ChatToolCall {
@@ -34,6 +36,10 @@ export interface ChatToolCall {
   type?: string
   function?: ChatToolCallFunction
   extraContent?: ChatToolCallExtraContent
+  result?: unknown
+  output?: unknown
+  response?: unknown
+  content?: unknown
 }
 
 export type AssistantMessageKind = "normal" | "thought" | "tool_calls"
@@ -47,6 +53,9 @@ export interface ChatMessage {
   modelName?: string
   attachments?: ChatAttachment[]
   toolCalls?: ChatToolCall[]
+  branches?: ChatMessage[][]
+  activeBranchIndex?: number
+  branchType?: "edit" | "regeneration"
 }
 
 export interface ContextUsage {
@@ -59,10 +68,7 @@ export interface ContextUsage {
 }
 
 export type ConnectionState =
-  | "disconnected"
-  | "connecting"
-  | "connected"
-  | "error"
+  "disconnected" | "connecting" | "connected" | "error"
 
 export interface ChatStoreState {
   messages: ChatMessage[]
@@ -94,6 +100,9 @@ export const assistantDetailVisibilityAtom =
 export const showAssistantDetailsAtom = atom(
   (get) => get(assistantDetailVisibilityAtom) !== "none",
 )
+export const temporaryChatAtom = atom<boolean>(false)
+export const temporaryChatUseMemoryAtom = atom<boolean>(false)
+export const temporaryChatSaveMemoryAndFilesAtom = atom<boolean>(false)
 
 const store = getDefaultStore()
 

@@ -19,10 +19,23 @@ func NewSkillsRecaller(workspace string) *SkillsRecaller {
 	builtinSkillsDir := strings.TrimSpace(os.Getenv(config.EnvBuiltinSkills))
 	if builtinSkillsDir == "" {
 		wd, err := os.Getwd()
-		if err != nil {
-			wd = config.GetHome()
+		if err == nil {
+			candidates := []string{
+				filepath.Join(wd, "skills"),
+				filepath.Join(wd, "workspace", "skills"),
+				filepath.Join(wd, "..", "skills"),
+				filepath.Join(wd, "..", "workspace", "skills"),
+			}
+			for _, c := range candidates {
+				if fi, err := os.Stat(c); err == nil && fi.IsDir() {
+					builtinSkillsDir = c
+					break
+				}
+			}
 		}
-		builtinSkillsDir = filepath.Join(wd, "skills")
+		if builtinSkillsDir == "" {
+			builtinSkillsDir = filepath.Join(config.GetHome(), "skills")
+		}
 	}
 
 	globalSkillsDir := filepath.Join(config.GetHome(), "skills")

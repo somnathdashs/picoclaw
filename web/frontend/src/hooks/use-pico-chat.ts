@@ -2,8 +2,15 @@ import dayjs from "dayjs"
 import { useAtomValue } from "jotai"
 
 import {
+  connectChat,
+  editUserTurn,
+  endTemporaryChatSession,
   newChatSession,
+  regenerateAssistantTurn,
   sendChatMessage,
+  startTemporaryChatSession,
+  stopAgentTurn,
+  switchChatBranch,
   switchChatSession,
 } from "@/features/chat/controller"
 import { chatAtom } from "@/store/chat"
@@ -64,8 +71,15 @@ export function usePicoChat() {
     isTyping,
     activeSessionId,
     contextUsage,
+    connect: connectChat,
     sendMessage: sendChatMessage,
     switchSession: switchChatSession,
     newChat: newChatSession,
+    startTemporaryChat: startTemporaryChatSession,
+    endTemporaryChat: endTemporaryChatSession,
+    stopTurn: stopAgentTurn,
+    switchBranch: switchChatBranch,
+    regenerateTurn: regenerateAssistantTurn,
+    editTurn: editUserTurn,
   }
 }

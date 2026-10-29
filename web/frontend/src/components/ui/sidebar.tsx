@@ -24,10 +24,12 @@ import { IconLayoutSidebar } from "@tabler/icons-react"
 
 const SIDEBAR_COOKIE_NAME = "sidebar_state"
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
-const SIDEBAR_WIDTH = "16rem"
-const SIDEBAR_WIDTH_MOBILE = "18rem"
-const SIDEBAR_WIDTH_ICON = "3rem"
+export const SIDEBAR_WIDTH = "16rem"
+export const SIDEBAR_WIDTH_MOBILE = "18rem"
+export const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
+const SIDEBAR_MIN_WIDTH = 48
+const SIDEBAR_MAX_WIDTH = 256
 
 type SidebarContextProps = {
   state: "expanded" | "collapsed"
@@ -37,6 +39,8 @@ type SidebarContextProps = {
   setOpenMobile: (open: boolean) => void
   isMobile: boolean
   toggleSidebar: () => void
+  width: number
+  setWidth: (width: number) => void
 }
 
 const SidebarContext = React.createContext<SidebarContextProps | null>(null)
@@ -66,9 +70,40 @@ function SidebarProvider({
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
 
+  const [width, setWidthState] = React.useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("sidebar_width")
+      if (saved) {
+        const parsed = parseInt(saved, 10)
+        if (!isNaN(parsed) && parsed >= SIDEBAR_MIN_WIDTH && parsed <= SIDEBAR_MAX_WIDTH) {
+          return parsed
+        }
+      }
+    }
+    return SIDEBAR_MAX_WIDTH
+  })
+
   // This is the internal state of the sidebar.
-  // We use openProp and setOpenProp for control from outside the component.
-  const [_open, _setOpen] = React.useState(defaultOpen)
+  const [_open, _setOpen] = React.useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      const savedOpen = localStorage.getItem("sidebar_open")
+      if (savedOpen !== null) {
+        return savedOpen === "true"
+      }
+      const savedWidth = localStorage.getItem("sidebar_width")
+      if (savedWidth) {
+        const parsed = parseInt(savedWidth, 10)
+        if (!isNaN(parsed) && parsed <= 64) {
+          return false
+        }
+      }
+      const match = document.cookie.match(new RegExp(`(^| )${SIDEBAR_COOKIE_NAME}=([^;]+)`))
+      if (match) {
+        return match[2] === "true"
+      }
+    }
+    return defaultOpen
+  })
   const open = openProp ?? _open
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
@@ -79,15 +114,54 @@ function SidebarProvider({
         _setOpen(openState)
       }
 
-      // This sets the cookie to keep the sidebar state.
+      if (typeof window !== "undefined") {
+        localStorage.setItem("sidebar_open", openState.toString())
+      }
       document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
     },
     [setOpenProp, open]
   )
 
+  const setWidth = React.useCallback(
+    (newWidth: number) => {
+      const clamped = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, newWidth))
+      setWidthState(clamped)
+      if (typeof window !== "undefined") {
+        localStorage.setItem("sidebar_width", clamped.toString())
+      }
+      if (clamped <= 64) {
+        setOpen(false)
+      } else {
+        setOpen(true)
+      }
+    },
+    [setOpen]
+  )
+
   // Helper to toggle the sidebar.
   const toggleSidebar = React.useCallback(() => {
-    return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open)
+    if (isMobile) {
+      setOpenMobile((open) => !open)
+    } else {
+      setOpen((prevOpen) => {
+        const next = !prevOpen
+        if (next) {
+          setWidthState((prevWidth) => {
+            const restored = prevWidth <= 64 ? SIDEBAR_MAX_WIDTH : prevWidth
+            if (typeof window !== "undefined") {
+              localStorage.setItem("sidebar_width", restored.toString())
+            }
+            return restored
+          })
+        } else {
+          setWidthState(SIDEBAR_MIN_WIDTH)
+          if (typeof window !== "undefined") {
+            localStorage.setItem("sidebar_width", SIDEBAR_MIN_WIDTH.toString())
+          }
+        }
+        return next
+      })
+    }
   }, [isMobile, setOpen, setOpenMobile])
 
   // Adds a keyboard shortcut to toggle the sidebar.
@@ -106,8 +180,6 @@ function SidebarProvider({
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [toggleSidebar])
 
-  // We add a state so that we can do data-state="expanded" or "collapsed".
-  // This makes it easier to style the sidebar with Tailwind classes.
   const state = open ? "expanded" : "collapsed"
 
   const contextValue = React.useMemo<SidebarContextProps>(
@@ -119,8 +191,10 @@ function SidebarProvider({
       openMobile,
       setOpenMobile,
       toggleSidebar,
+      width,
+      setWidth,
     }),
-    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar]
+    [state, open, setOpen, isMobile, openMobile, setOpenMobile, toggleSidebar, width, setWidth]
   )
 
   return (
@@ -129,8 +203,8 @@ function SidebarProvider({
         data-slot="sidebar-wrapper"
         style={
           {
-            "--sidebar-width": SIDEBAR_WIDTH,
-            "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
+            "--sidebar-width": `${open ? Math.max(120, width) : SIDEBAR_MIN_WIDTH}px`,
+            "--sidebar-width-icon": `${SIDEBAR_MIN_WIDTH}px`,
             ...style,
           } as React.CSSProperties
         }
@@ -275,23 +349,47 @@ function SidebarTrigger({
 }
 
 function SidebarRail({ className, ...props }: React.ComponentProps<"button">) {
-  const { toggleSidebar } = useSidebar()
+  const { toggleSidebar, setWidth } = useSidebar()
+  const isDraggingRef = React.useRef(false)
+
+  const handleMouseDown = React.useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      isDraggingRef.current = true
+      document.body.style.cursor = "col-resize"
+      document.body.style.userSelect = "none"
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        if (!isDraggingRef.current) return
+        const newWidth = Math.max(SIDEBAR_MIN_WIDTH, Math.min(SIDEBAR_MAX_WIDTH, moveEvent.clientX))
+        setWidth(newWidth)
+      }
+
+      const handleMouseUp = () => {
+        isDraggingRef.current = false
+        document.body.style.cursor = ""
+        document.body.style.userSelect = ""
+        window.removeEventListener("mousemove", handleMouseMove)
+        window.removeEventListener("mouseup", handleMouseUp)
+      }
+
+      window.addEventListener("mousemove", handleMouseMove)
+      window.addEventListener("mouseup", handleMouseUp)
+    },
+    [setWidth]
+  )
 
   return (
     <button
       data-sidebar="rail"
       data-slot="sidebar-rail"
-      aria-label="Toggle Sidebar"
+      aria-label="Resize Sidebar"
       tabIndex={-1}
-      onClick={toggleSidebar}
-      title="Toggle Sidebar"
+      onMouseDown={handleMouseDown}
+      onDoubleClick={toggleSidebar}
+      title="Drag to resize, double-click to toggle"
       className={cn(
-        "absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:start-1/2 after:w-[2px] hover:after:bg-sidebar-border sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2",
-        "in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize",
-        "[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize",
-        "group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar",
-        "[[data-side=left][data-collapsible=offcanvas]_&]:-right-2",
-        "[[data-side=right][data-collapsible=offcanvas]_&]:-left-2",
+        "absolute inset-y-0 z-20 hidden w-3 transition-all cursor-col-resize hover:w-4 sm:flex -right-1.5 after:absolute after:inset-y-0 after:start-1/2 after:w-[2px] hover:after:w-[3px] hover:after:bg-primary/70 after:transition-all",
         className
       )}
       {...props}
@@ -368,7 +466,7 @@ function SidebarContent({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="sidebar-content"
       data-sidebar="content"
       className={cn(
-        "no-scrollbar flex min-h-0 flex-1 flex-col gap-2 overflow-auto group-data-[collapsible=icon]:overflow-hidden",
+        "no-scrollbar flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden",
         className
       )}
       {...props}
@@ -464,7 +562,7 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<"li">) {
 }
 
 const sidebarMenuButtonVariants = cva(
-  "peer/menu-button group/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-8! group-data-[collapsible=icon]:p-2! hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-open:hover:bg-sidebar-accent data-open:hover:text-sidebar-accent-foreground data-active:bg-sidebar-accent data-active:font-medium data-active:text-sidebar-accent-foreground [&_svg]:size-4 [&_svg]:shrink-0 [&>span:last-child]:truncate",
+  "peer/menu-button group/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm ring-sidebar-ring outline-hidden transition-[width,height,padding] group-has-data-[sidebar=menu-action]/menu-item:pr-8 group-data-[collapsible=icon]:size-9! group-data-[collapsible=icon]:p-2! hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 active:bg-sidebar-accent active:text-sidebar-accent-foreground disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-open:hover:bg-sidebar-accent data-open:hover:text-sidebar-accent-foreground data-active:bg-sidebar-accent data-active:font-medium data-active:text-sidebar-accent-foreground [&_svg]:size-5 [&_svg]:shrink-0 [&>span:last-child]:truncate",
   {
     variants: {
       variant: {

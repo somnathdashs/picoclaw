@@ -103,13 +103,23 @@ func NewContextBuilder(workspace string) *ContextBuilder {
 	builtinSkillsDir := strings.TrimSpace(os.Getenv(config.EnvBuiltinSkills))
 	if builtinSkillsDir == "" {
 		wd, err := os.Getwd()
-		if err != nil {
-			// os.Getwd failure is extremely rare; fall back to empty
-			// string so that filepath.Join produces a relative "skills"
-			// path, preserving the original lookup behavior.
-			wd = ""
+		if err == nil {
+			candidates := []string{
+				filepath.Join(wd, "skills"),
+				filepath.Join(wd, "workspace", "skills"),
+				filepath.Join(wd, "..", "skills"),
+				filepath.Join(wd, "..", "workspace", "skills"),
+			}
+			for _, c := range candidates {
+				if fi, err := os.Stat(c); err == nil && fi.IsDir() {
+					builtinSkillsDir = c
+					break
+				}
+			}
 		}
-		builtinSkillsDir = filepath.Join(wd, "skills")
+		if builtinSkillsDir == "" {
+			builtinSkillsDir = filepath.Join(wd, "skills")
+		}
 	}
 	globalSkillsDir := filepath.Join(getGlobalConfigDir(), "skills")
 
@@ -158,6 +168,7 @@ func (cb *ContextBuilder) getIdentity(includeToolUseRule bool) string {
 	rules = append(
 		rules,
 		accuracyRule,
+		"**Do not dump file contents** - When writing or editing files with tools (`write_file`, `edit_file`, etc.), do NOT dump or rewrite the full file contents into your chat message. The system already displays the file diffs in the UI. Provide only a concise summary of the changes made, unless the user explicitly asks to view the full file.",
 		"**Context summaries** - Conversation summaries provided as context are approximate references only. They may be incomplete or outdated. Always defer to explicit user instructions over summary content.",
 	)
 	if includeToolUseRule {
@@ -764,6 +775,9 @@ func (cb *ContextBuilder) LoadBootstrapFiles() string {
 	if agentDefinition.User != nil {
 		fmt.Fprintf(&sb, "## %s\n\n%s\n\n", "USER.md", agentDefinition.User.Content)
 	}
+	if agentDefinition.Rule != nil && strings.TrimSpace(agentDefinition.Rule.Content) != "" {
+		fmt.Fprintf(&sb, "## %s\n\n%s\n\n", "RULES.md", agentDefinition.Rule.Content)
+	}
 
 	if agentDefinition.Source != AgentDefinitionSourceAgent {
 		filePath := filepath.Join(cb.workspace, "IDENTITY.md")
@@ -991,7 +1005,12 @@ func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []prov
 			"preview": preview,
 		})
 
-	history := sanitizeHistoryForProvider(req.History)
+	var history []providers.Message
+	if len(req.BranchHistory) > 0 {
+		history = sanitizeHistoryForProvider(req.BranchHistory)
+	} else {
+		history = sanitizeHistoryForProvider(pruneDivergentBranchTurns(req.History))
+	}
 
 	// Single system message containing all context — compatible with all providers.
 	// SystemParts enables cache-aware adapters to set per-block cache_control;
@@ -1198,6 +1217,69 @@ func sanitizeHistoryForProvider(history []providers.Message) []providers.Message
 	}
 
 	return final
+}
+
+// pruneDivergentBranchTurns drops earlier branch turns when multiple turns diverge from identical prompts.
+func pruneDivergentBranchTurns(history []providers.Message) []providers.Message {
+	if len(history) <= 1 {
+		return history
+	}
+
+	type turnGroup struct {
+		userIndex int
+		userMsg   providers.Message
+		messages  []providers.Message
+	}
+
+	var turns []turnGroup
+	for i := 0; i < len(history); {
+		if history[i].Role == "user" {
+			tg := turnGroup{
+				userIndex: i,
+				userMsg:   history[i],
+				messages:  []providers.Message{history[i]},
+			}
+			j := i + 1
+			for j < len(history) && history[j].Role != "user" {
+				tg.messages = append(tg.messages, history[j])
+				j++
+			}
+			turns = append(turns, tg)
+			i = j
+		} else {
+			if len(turns) == 0 {
+				turns = append(turns, turnGroup{
+					userIndex: -1,
+					messages:  []providers.Message{history[i]},
+				})
+			} else {
+				turns[len(turns)-1].messages = append(turns[len(turns)-1].messages, history[i])
+			}
+			i++
+		}
+	}
+
+	if len(turns) <= 1 {
+		return history
+	}
+
+	var prunedTurns []turnGroup
+	for i := 0; i < len(turns); i++ {
+		if i+1 < len(turns) && turns[i].userIndex >= 0 && turns[i+1].userIndex >= 0 {
+			sameContent := strings.TrimSpace(turns[i].userMsg.Content) == strings.TrimSpace(turns[i+1].userMsg.Content)
+			sameMedia := slices.Equal(turns[i].userMsg.Media, turns[i+1].userMsg.Media)
+			if sameContent && sameMedia {
+				continue
+			}
+		}
+		prunedTurns = append(prunedTurns, turns[i])
+	}
+
+	result := make([]providers.Message, 0, len(history))
+	for _, tg := range prunedTurns {
+		result = append(result, tg.messages...)
+	}
+	return result
 }
 
 func (cb *ContextBuilder) AddToolResult(

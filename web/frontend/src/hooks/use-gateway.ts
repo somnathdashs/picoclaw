@@ -77,6 +77,10 @@ export function useGateway() {
     }
   }, [state])
 
+  const clearError = useCallback(() => {
+    setError(null)
+  }, [])
+
   return {
     state,
     loading,
@@ -87,5 +91,6 @@ export function useGateway() {
     stop,
     restart,
     error,
+    clearError,
   }
 }

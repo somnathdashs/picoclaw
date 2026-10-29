@@ -1225,6 +1225,11 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 		"session_id": sessionID,
 		"conn_id":    pc.id,
 	}
+	if bhRaw, exists := msg.Payload["branch_history"]; exists && bhRaw != nil {
+		if bhBytes, err := json.Marshal(bhRaw); err == nil && len(bhBytes) >= 2 {
+			metadata["branch_history"] = string(bhBytes)
+		}
+	}
 
 	logger.DebugCF("pico", "Received message", map[string]any{
 		"session_id": sessionID,

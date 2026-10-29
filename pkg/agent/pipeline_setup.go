@@ -19,7 +19,12 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 
 	var history []providers.Message
 	var summary string
-	if !ts.opts.NoHistory {
+	if ts.opts.BranchHistoryProvided {
+		history = append([]providers.Message(nil), ts.opts.BranchHistory...)
+		if !ts.opts.NoHistory && ts.agent.Sessions != nil {
+			ts.agent.Sessions.SetHistory(ts.sessionKey, history)
+		}
+	} else if !ts.opts.NoHistory {
 		if resp, err := p.ContextManager.Assemble(ctx, &AssembleRequest{
 			SessionKey: ts.sessionKey,
 			Budget:     ts.agent.ContextWindow,

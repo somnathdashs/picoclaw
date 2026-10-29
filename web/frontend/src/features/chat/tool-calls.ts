@@ -78,24 +78,41 @@ export function parseToolCallsValue(raw: unknown): ChatToolCall[] | undefined {
       }
     }
 
+    const toolFeedbackResult =
+      rawExtraContent?.result ?? rawExtraContent?.output
     if (rawExtraContent) {
       const toolFeedbackExplanation =
         typeof rawExtraContent.tool_feedback_explanation === "string"
           ? rawExtraContent.tool_feedback_explanation
           : undefined
 
-      if (toolFeedbackExplanation) {
+      if (toolFeedbackExplanation || toolFeedbackResult !== undefined) {
         nextToolCall.extraContent = {
-          toolFeedbackExplanation,
+          ...(toolFeedbackExplanation ? { toolFeedbackExplanation } : {}),
+          ...(toolFeedbackResult !== undefined
+            ? { result: toolFeedbackResult }
+            : {}),
         }
       }
+    }
+
+    const resultValue =
+      toolCall.result ??
+      toolCall.output ??
+      toolCall.response ??
+      toolCall.content ??
+      toolFeedbackResult
+
+    if (resultValue !== undefined) {
+      nextToolCall.result = resultValue
     }
 
     if (
       nextToolCall.id ||
       nextToolCall.type ||
       nextToolCall.function ||
-      nextToolCall.extraContent
+      nextToolCall.extraContent ||
+      nextToolCall.result !== undefined
     ) {
       toolCalls.push(nextToolCall)
     }
@@ -119,6 +136,7 @@ export function toolCallsSignature(toolCalls?: ChatToolCall[]): string {
         toolCall.function?.name ?? "",
         toolCall.function?.arguments ?? "",
         toolCall.extraContent?.toolFeedbackExplanation ?? "",
+        typeof toolCall.result === "string" ? toolCall.result : "",
       ].join("\u0001"),
     )
     .join("\u0002")

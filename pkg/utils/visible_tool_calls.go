@@ -13,6 +13,7 @@ type VisibleToolCall struct {
 	Type         string                       `json:"type,omitempty"`
 	Function     *VisibleToolCallFunction     `json:"function,omitempty"`
 	ExtraContent *VisibleToolCallExtraContent `json:"extra_content,omitempty"`
+	Result       string                       `json:"result,omitempty"`
 }
 
 type VisibleToolCallFunction struct {

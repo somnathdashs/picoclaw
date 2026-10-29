@@ -25,8 +25,7 @@ var channelCatalog = []channelCatalogItem{
 	{Name: "qq", ConfigKey: "qq"},
 	{Name: "onebot", ConfigKey: "onebot"},
 	{Name: "wecom", ConfigKey: "wecom"},
-	{Name: "whatsapp", ConfigKey: "whatsapp", Variant: "bridge"},
-	{Name: "whatsapp_native", ConfigKey: "whatsapp", Variant: "native"},
+	{Name: "whatsapp", ConfigKey: "whatsapp"},
 	{Name: "pico", ConfigKey: "pico"},
 	{Name: "maixcam", ConfigKey: "maixcam"},
 	{Name: "matrix", ConfigKey: "matrix"},
@@ -83,6 +82,9 @@ func (h *Handler) handleGetChannelConfig(w http.ResponseWriter, r *http.Request)
 }
 
 func findChannelCatalogItem(name string) (channelCatalogItem, bool) {
+	if name == "whatsapp_native" {
+		name = "whatsapp"
+	}
 	for _, item := range channelCatalog {
 		if item.Name == name {
 			return item, true

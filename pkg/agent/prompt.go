@@ -104,8 +104,9 @@ type PromptPart struct {
 }
 
 type PromptBuildRequest struct {
-	History []providers.Message
-	Summary string
+	History       []providers.Message
+	BranchHistory []providers.Message
+	Summary       string
 
 	CurrentMessage string
 	Media          []string

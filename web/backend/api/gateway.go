@@ -1234,6 +1234,31 @@ func (h *Handler) handleGatewayStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pid, err := h.StartGateway()
+	if err != nil {
+		var precondErr *preconditionFailedError
+		if errors.As(err, &precondErr) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":  "precondition_failed",
+				"message": precondErr.reason,
+			})
+			return
+		}
+		http.Error(w, fmt.Sprintf("Failed to start gateway: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"status": "ok",
+		"pid":    pid,
+	})
+}
+
+// StartGateway starts the gateway subprocess.
+func (h *Handler) StartGateway() (int, error) {
 	gateway.mu.Lock()
 	defer gateway.mu.Unlock()
 
@@ -1244,34 +1269,13 @@ func (h *Handler) handleGatewayStart(w http.ResponseWriter, r *http.Request) {
 
 	ready, reason, err := h.gatewayStartReady()
 	if err != nil {
-		http.Error(
-			w,
-			fmt.Sprintf("Failed to validate gateway start conditions: %v", err),
-			http.StatusInternalServerError,
-		)
-		return
+		return 0, fmt.Errorf("failed to validate gateway start conditions: %w", err)
 	}
 	if !ready {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]any{
-			"status":  "precondition_failed",
-			"message": reason,
-		})
-		return
+		return 0, &preconditionFailedError{reason: reason}
 	}
 
-	pid, err := h.startGatewayLocked("starting", 0)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to start gateway: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"status": "ok",
-		"pid":    pid,
-	})
+	return h.startGatewayLocked("starting", 0)
 }
 
 // handleGatewayStop stops the running gateway subprocess gracefully.

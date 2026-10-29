@@ -1,20 +1,29 @@
 import { getDefaultStore } from "jotai"
 import { toast } from "sonner"
 
+import { deleteSession, getSessionHistory } from "@/api/sessions"
 import {
   loadSessionMessages,
   mergeHistoryMessages,
 } from "@/features/chat/history"
+import {
+  formatBranchHistory,
+  loadSessionBranches,
+  reconstructBranchesFromHistory,
+  saveSessionBranches,
+} from "@/features/chat/branches"
 import { type PicoMessage, handlePicoMessage } from "@/features/chat/protocol"
 import {
   clearStoredSessionId,
   generateSessionId,
+  generateTemporarySessionId,
   readStoredSessionId,
 } from "@/features/chat/state"
 import { invalidateSocket, isCurrentSocket } from "@/features/chat/websocket"
 import i18n from "@/i18n"
 import {
   type ChatAttachment,
+  type ChatMessage,
   getChatState,
   updateChatStore,
 } from "@/store/chat"
@@ -271,22 +280,35 @@ export async function hydrateActiveSession() {
         return
       }
 
+      const savedBranches = loadSessionBranches(storedSessionId)
+      const reconstructed = reconstructBranchesFromHistory(
+        historyMessages,
+        savedBranches,
+      )
+
       if (currentState.messages.length > 0) {
+        const merged = mergeHistoryMessages(
+          reconstructed,
+          currentState.messages,
+        )
+        const finalMessages = reconstructBranchesFromHistory(
+          merged,
+          savedBranches,
+        )
         updateChatStore({
-          messages: mergeHistoryMessages(
-            historyMessages,
-            currentState.messages,
-          ),
+          messages: finalMessages,
           hasHydratedActiveSession: true,
         })
+        saveSessionBranches(storedSessionId, finalMessages)
         return
       }
 
       updateChatStore({
-        messages: historyMessages,
+        messages: reconstructed,
         isTyping: false,
         hasHydratedActiveSession: true,
       })
+      saveSessionBranches(storedSessionId, reconstructed)
     })
     .catch((error) => {
       console.error("Failed to restore last session history:", error)
@@ -317,15 +339,21 @@ export async function hydrateActiveSession() {
 
 interface SendChatMessageInput {
   content: string
+  displayContent?: string
   attachments?: ChatAttachment[]
 }
 
 export function sendChatMessage({
   content,
+  displayContent,
   attachments = [],
 }: SendChatMessageInput) {
+  const state = getChatState()
+
   if (!wsRef || wsRef.readyState !== WebSocket.OPEN) {
-    console.warn("WebSocket not connected")
+    if (store.get(gatewayAtom).status === "running") {
+      void connectChat()
+    }
     return false
   }
 
@@ -340,6 +368,7 @@ export function sendChatMessage({
 
   const socket = wsRef
   const id = `msg-${++msgIdCounter}-${Date.now()}`
+  const branchHistory = formatBranchHistory(state.messages)
 
   updateChatStore((prev) => ({
     messages: [
@@ -347,7 +376,7 @@ export function sendChatMessage({
       {
         id,
         role: "user",
-        content: normalizedContent,
+        content: displayContent?.trim() || normalizedContent,
         attachments:
           normalizedAttachments.length > 0 ? normalizedAttachments : undefined,
         timestamp: Date.now(),
@@ -360,12 +389,14 @@ export function sendChatMessage({
     const payload: Record<string, unknown> = {
       content: normalizedContent,
       media: normalizedAttachments.map((attachment) => attachment.url),
+      branch_history: branchHistory,
     }
 
     socket.send(
       JSON.stringify({
         type: "message.send",
         id,
+        session_id: state.activeSessionId,
         payload,
       }),
     )
@@ -376,6 +407,299 @@ export function sendChatMessage({
       messages: prev.messages.filter((message) => message.id !== id),
       isTyping: false,
     }))
+  }
+}
+
+export function stopAgentTurn() {
+  const state = getChatState()
+  if (wsRef && wsRef.readyState === WebSocket.OPEN) {
+    try {
+      wsRef.send(
+        JSON.stringify({
+          type: "message.send",
+          id: `stop-${Date.now()}`,
+          session_id: state.activeSessionId,
+          payload: { content: "/stop" },
+        }),
+      )
+    } catch (err) {
+      console.warn("Failed to send stop command:", err)
+    }
+  }
+
+  updateChatStore((prev) => ({
+    messages: [
+      ...prev.messages,
+      {
+        id: `interrupt-${Date.now()}`,
+        role: "assistant",
+        content: "User interrupted.",
+        timestamp: Date.now(),
+      },
+    ],
+    isTyping: false,
+  }))
+}
+
+export function switchChatBranch(
+  turnRootId: string,
+  targetBranchIndex: number,
+): boolean {
+  const state = getChatState()
+  if (state.isTyping) return false
+
+  const idx = state.messages.findIndex((m) => m.id === turnRootId)
+  if (idx < 0) return false
+
+  const rootMsg = state.messages[idx]
+  if (!rootMsg.branches || rootMsg.branches.length === 0) return false
+  if (
+    targetBranchIndex < 0 ||
+    targetBranchIndex >= rootMsg.branches.length
+  ) {
+    return false
+  }
+
+  const branches = rootMsg.branches
+  const currentBranchIdx = rootMsg.activeBranchIndex ?? 0
+
+  const currentSnapshot = state.messages.slice(idx)
+  if (currentSnapshot.length > 0) {
+    currentSnapshot[0].activeBranchIndex = currentBranchIdx
+    currentSnapshot[0].branches = branches
+  }
+  branches[currentBranchIdx] = currentSnapshot
+
+  if (currentBranchIdx === targetBranchIndex) return true
+
+  const targetBranch = branches[targetBranchIndex]
+  if (!targetBranch || targetBranch.length === 0) return false
+
+  targetBranch[0].branches = branches
+  targetBranch[0].activeBranchIndex = targetBranchIndex
+
+  for (let b = 0; b < branches.length; b++) {
+    if (branches[b][0]) {
+      branches[b][0].branches = branches
+      branches[b][0].activeBranchIndex = b
+      if (rootMsg.branchType) {
+        branches[b][0].branchType = rootMsg.branchType
+      }
+    }
+  }
+
+  const nextMessages = [...state.messages.slice(0, idx), ...targetBranch]
+  updateChatStore({
+    messages: nextMessages,
+  })
+  if (state.activeSessionId) {
+    saveSessionBranches(state.activeSessionId, nextMessages)
+  }
+  return true
+}
+
+export function regenerateAssistantTurn(assistantMessageId: string): boolean {
+  const state = getChatState()
+  if (state.isTyping) return false
+
+  const aiIdx = state.messages.findIndex((m) => m.id === assistantMessageId)
+  if (aiIdx < 0) return false
+
+  let userIdx = -1
+  for (let i = aiIdx - 1; i >= 0; i--) {
+    if (state.messages[i].role === "user") {
+      userIdx = i
+      break
+    }
+  }
+  if (userIdx < 0) return false
+
+  const userMsg = state.messages[userIdx]
+  const currentSnapshot = state.messages.slice(userIdx)
+
+  const branches: ChatMessage[][] = userMsg.branches
+    ? [...userMsg.branches]
+    : []
+  if (branches.length === 0) {
+    if (currentSnapshot.length > 0) {
+      currentSnapshot[0].activeBranchIndex = 0
+      currentSnapshot[0].branchType = "regeneration"
+    }
+    branches.push(currentSnapshot)
+  } else {
+    const curIdx = userMsg.activeBranchIndex ?? 0
+    if (currentSnapshot.length > 0) {
+      currentSnapshot[0].activeBranchIndex = curIdx
+      currentSnapshot[0].branchType = "regeneration"
+    }
+    branches[curIdx] = currentSnapshot
+  }
+
+  const newBranchIndex = branches.length
+  const newId = `msg-${++msgIdCounter}-${Date.now()}`
+  const newMsg = {
+    ...userMsg,
+    id: newId,
+    timestamp: Date.now(),
+    branches,
+    activeBranchIndex: newBranchIndex,
+    branchType: "regeneration" as const,
+  }
+
+  branches.push([newMsg])
+  for (let b = 0; b < branches.length; b++) {
+    if (branches[b][0]) {
+      branches[b][0].branches = branches
+      branches[b][0].activeBranchIndex = b
+      branches[b][0].branchType = "regeneration"
+    }
+  }
+
+  const nextMessages = [...state.messages.slice(0, userIdx), newMsg]
+  updateChatStore({
+    messages: nextMessages,
+    isTyping: true,
+  })
+  if (state.activeSessionId) {
+    saveSessionBranches(state.activeSessionId, nextMessages)
+  }
+
+  if (!wsRef || wsRef.readyState !== WebSocket.OPEN) {
+    updateChatStore({ isTyping: false })
+    return false
+  }
+
+  try {
+    const payload: Record<string, unknown> = {
+      content: newMsg.content,
+      media: (newMsg.attachments || [])
+        .filter((att) => att.type === "image" && att.url)
+        .map((att) => att.url),
+      branch_history: formatBranchHistory(state.messages.slice(0, userIdx)),
+    }
+
+    wsRef.send(
+      JSON.stringify({
+        type: "message.send",
+        id: newId,
+        session_id: state.activeSessionId,
+        payload,
+      }),
+    )
+    return true
+  } catch (error) {
+    console.error("Failed to regenerate turn:", error)
+    updateChatStore({ isTyping: false })
+    return false
+  }
+}
+
+export function editUserTurn(
+  userMessageId: string,
+  newText: string,
+): boolean {
+  const text = newText.trim()
+  if (!text) return false
+
+  const state = getChatState()
+
+  // If agent is active, send /stop to abort any ongoing work on the backend
+  if (state.isTyping && wsRef && wsRef.readyState === WebSocket.OPEN) {
+    try {
+      wsRef.send(
+        JSON.stringify({
+          type: "message.send",
+          id: `stop-${Date.now()}`,
+          session_id: state.activeSessionId,
+          payload: { content: "/stop" },
+        }),
+      )
+    } catch {
+      // ignore stop send failure
+    }
+  }
+
+  const userIdx = state.messages.findIndex((m) => m.id === userMessageId)
+  if (userIdx < 0) return false
+
+  const userMsg = state.messages[userIdx]
+  const currentSnapshot = state.messages.slice(userIdx)
+
+  const branches: ChatMessage[][] = userMsg.branches
+    ? [...userMsg.branches]
+    : []
+  const curIdx = userMsg.activeBranchIndex ?? 0
+
+  if (branches.length === 0) {
+    if (currentSnapshot.length > 0) {
+      currentSnapshot[0].activeBranchIndex = 0
+      currentSnapshot[0].branchType = "edit"
+    }
+    branches.push(currentSnapshot)
+  } else {
+    if (currentSnapshot.length > 0) {
+      currentSnapshot[0].activeBranchIndex = curIdx
+      currentSnapshot[0].branchType = "edit"
+    }
+    branches[curIdx] = currentSnapshot
+  }
+
+  const newBranchIndex = branches.length
+  const newId = `msg-${++msgIdCounter}-${Date.now()}`
+  const newMsg = {
+    ...userMsg,
+    id: newId,
+    content: text,
+    timestamp: Date.now(),
+    branches,
+    activeBranchIndex: newBranchIndex,
+    branchType: "edit" as const,
+  }
+
+  branches.push([newMsg])
+  for (let b = 0; b < branches.length; b++) {
+    if (branches[b][0]) {
+      branches[b][0].branches = branches
+      branches[b][0].activeBranchIndex = b
+      branches[b][0].branchType = "edit"
+    }
+  }
+
+  const nextMessages = [...state.messages.slice(0, userIdx), newMsg]
+  updateChatStore({
+    messages: nextMessages,
+    isTyping: true,
+  })
+  if (state.activeSessionId) {
+    saveSessionBranches(state.activeSessionId, nextMessages)
+  }
+
+  if (!wsRef || wsRef.readyState !== WebSocket.OPEN) {
+    updateChatStore({ isTyping: false })
+    return false
+  }
+
+  try {
+    const payload: Record<string, unknown> = {
+      content: text,
+      media: (newMsg.attachments || [])
+        .filter((att) => att.type === "image" && att.url)
+        .map((att) => att.url),
+      branch_history: formatBranchHistory(state.messages.slice(0, userIdx)),
+    }
+
+    wsRef.send(
+      JSON.stringify({
+        type: "message.send",
+        id: newId,
+        session_id: state.activeSessionId,
+        payload,
+      }),
+    )
+    return true
+  } catch (error) {
+    console.error("Failed to edit turn:", error)
+    updateChatStore({ isTyping: false })
     return false
   }
 }
@@ -387,16 +711,22 @@ export async function switchChatSession(sessionId: string) {
 
   try {
     const historyMessages = await loadSessionMessages(sessionId)
+    const savedBranches = loadSessionBranches(sessionId)
+    const finalMessages = reconstructBranchesFromHistory(
+      historyMessages,
+      savedBranches,
+    )
 
     disconnectChatInternal({ clearDesiredConnection: false })
     setActiveSessionId(sessionId)
     updateChatStore({
-      messages: historyMessages,
+      messages: finalMessages,
       isTyping: false,
       hasHydratedActiveSession: true,
       contextUsage: undefined,
     })
 
+    lastActiveSessionMessageCount = finalMessages.length
     if (store.get(gatewayAtom).status === "running") {
       shouldMaintainConnection = true
       await connectChat()
@@ -427,6 +757,107 @@ export async function newChatSession() {
   }
 }
 
+export async function startTemporaryChatSession() {
+  disconnectChatInternal({ clearDesiredConnection: false })
+  const tempId = generateTemporarySessionId()
+  setActiveSessionId(tempId)
+  updateChatStore({
+    messages: [],
+    isTyping: false,
+    hasHydratedActiveSession: true,
+    contextUsage: undefined,
+  })
+
+  if (store.get(gatewayAtom).status === "running") {
+    shouldMaintainConnection = true
+    await connectChat()
+  }
+  return tempId
+}
+
+export async function endTemporaryChatSession(tempSessionId?: string) {
+  const targetId = tempSessionId || activeSessionIdRef
+  if (
+    targetId &&
+    (targetId.startsWith("temp-") || targetId.startsWith("temporary-"))
+  ) {
+    try {
+      await deleteSession(targetId)
+    } catch {
+      // Ignore if session was not written on server
+    }
+  }
+
+  disconnectChatInternal({ clearDesiredConnection: false })
+  setActiveSessionId(generateSessionId())
+  updateChatStore({
+    messages: [],
+    isTyping: false,
+    hasHydratedActiveSession: true,
+    contextUsage: undefined,
+  })
+
+  if (store.get(gatewayAtom).status === "running") {
+    shouldMaintainConnection = true
+    await connectChat()
+  }
+}
+
+let activeSessionPoller: number | null = null
+let isSyncingActiveSession = false
+export let lastActiveSessionMessageCount = 0
+
+async function syncActiveSessionIfUpdated() {
+  const currentSessionId = activeSessionIdRef
+  if (
+    !currentSessionId ||
+    currentSessionId.startsWith("temp-") ||
+    currentSessionId.startsWith("temporary-") ||
+    isSyncingActiveSession
+  ) {
+    return
+  }
+
+  const state = getChatState()
+  if (state.isTyping) {
+    return
+  }
+
+  isSyncingActiveSession = true
+  try {
+    const detail = await getSessionHistory(currentSessionId)
+    if (activeSessionIdRef !== currentSessionId) return
+
+    const currentMessages = getChatState().messages
+    const hasCountChange = detail.messages.length !== currentMessages.length
+    const hasContentChange =
+      detail.messages.length > 0 &&
+      currentMessages.length > 0 &&
+      detail.messages[detail.messages.length - 1].content !==
+        currentMessages[currentMessages.length - 1].content
+
+    if (hasCountChange || hasContentChange) {
+      lastActiveSessionMessageCount = detail.messages.length
+      const historyMessages = await loadSessionMessages(currentSessionId)
+      if (activeSessionIdRef !== currentSessionId) return
+
+      const savedBranches = loadSessionBranches(currentSessionId)
+      const finalMessages = reconstructBranchesFromHistory(
+        historyMessages,
+        savedBranches,
+      )
+
+      updateChatStore({
+        messages: finalMessages,
+      })
+    }
+  } catch {
+    // Session not yet saved or transient network error
+  } finally {
+    isSyncingActiveSession = false
+  }
+}
+
 export function initializeChatStore() {
   if (initialized) {
     return
@@ -435,6 +866,22 @@ export function initializeChatStore() {
   initialized = true
   activeSessionIdRef = getChatState().activeSessionId
   let lastGatewayStatus: GatewayState | null = null
+
+  if (typeof window !== "undefined") {
+    if (activeSessionPoller !== null) {
+      window.clearInterval(activeSessionPoller)
+    }
+    activeSessionPoller = window.setInterval(() => {
+      void syncActiveSessionIfUpdated()
+    }, 1500)
+
+    window.addEventListener("focus", () => void syncActiveSessionIfUpdated())
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        void syncActiveSessionIfUpdated()
+      }
+    })
+  }
 
   const syncConnectionWithGateway = (force: boolean = false) => {
     const gatewayStatus = store.get(gatewayAtom).status
@@ -474,6 +921,10 @@ export function initializeChatStore() {
 }
 
 export function teardownChatStore() {
+  if (activeSessionPoller !== null) {
+    window.clearInterval(activeSessionPoller)
+    activeSessionPoller = null
+  }
   unsubscribeGateway?.()
   unsubscribeGateway = null
   initialized = false

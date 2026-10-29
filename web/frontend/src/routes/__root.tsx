@@ -1,5 +1,4 @@
 import { Outlet, createRootRoute, useRouterState } from "@tanstack/react-router"
-import { TanStackRouterDevtools } from "@tanstack/react-router-devtools"
 import { useEffect, useState } from "react"
 
 import { getLauncherAuthStatus } from "@/api/launcher-auth"
@@ -51,6 +50,14 @@ const RootLayout = () => {
         if (err instanceof Error && /^status 40[13]$/.test(err.message)) {
           globalThis.location.assign("/launcher-login")
         } else {
+          // Suppress 502/ECONNREFUSED banner during dev mode when backend is offline
+          if (
+            import.meta.env.DEV &&
+            err instanceof Error &&
+            /502|failed to fetch/i.test(err.message)
+          ) {
+            return
+          }
           setAuthError(
             err instanceof Error
               ? err.message
@@ -68,12 +75,7 @@ const RootLayout = () => {
   }, [isAuthPage])
 
   if (isAuthPage) {
-    return (
-      <>
-        <Outlet />
-        {import.meta.env.DEV ? <TanStackRouterDevtools /> : null}
-      </>
-    )
+    return <Outlet />
   }
 
   return (
@@ -92,7 +94,6 @@ const RootLayout = () => {
       )}
       <AppLayout>
         <Outlet />
-        {import.meta.env.DEV ? <TanStackRouterDevtools /> : null}
       </AppLayout>
     </>
   )

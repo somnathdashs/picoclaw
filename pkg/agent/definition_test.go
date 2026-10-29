@@ -127,6 +127,27 @@ func TestLoadAgentDefinitionLoadsWorkspaceUserMarkdown(t *testing.T) {
 	}
 }
 
+func TestLoadAgentDefinitionLoadsWorkspaceRulesMarkdown(t *testing.T) {
+	tmpDir := setupWorkspace(t, map[string]string{
+		"AGENT.md": "# Agent\nStructured agent.",
+		"RULES.md": "# Rules\nCustom instructions.",
+	})
+	defer cleanupWorkspace(t, tmpDir)
+
+	cb := NewContextBuilder(tmpDir)
+	definition := cb.LoadAgentDefinition()
+
+	if definition.Rule == nil {
+		t.Fatal("expected RULES.md to be loaded")
+	}
+	if definition.Rule.Path != filepath.Join(tmpDir, "RULES.md") {
+		t.Fatalf("expected workspace RULES.md path, got %q", definition.Rule.Path)
+	}
+	if !strings.Contains(definition.Rule.Content, "Custom instructions") {
+		t.Fatalf("expected workspace RULES.md content, got %q", definition.Rule.Content)
+	}
+}
+
 func TestLoadAgentDefinitionInvalidFrontmatterFallsBackToEmptyStructuredFields(t *testing.T) {
 	tmpDir := setupWorkspace(t, map[string]string{
 		"AGENT.md": `---
@@ -217,6 +238,25 @@ func TestLoadBootstrapFilesIncludesWorkspaceUserMarkdown(t *testing.T) {
 	}
 	if !strings.Contains(bootstrap, "## USER.md") {
 		t.Fatalf("expected USER.md heading in bootstrap, got %q", bootstrap)
+	}
+}
+
+func TestLoadBootstrapFilesIncludesWorkspaceRulesMarkdown(t *testing.T) {
+	tmpDir := setupWorkspace(t, map[string]string{
+		"AGENT.md": "# Agent\nFollow the new structure.",
+		"SOUL.md":  "# Soul\nSpeak plainly.",
+		"RULES.md": "# Global Rules\nAlways be concise.",
+	})
+	defer cleanupWorkspace(t, tmpDir)
+
+	cb := NewContextBuilder(tmpDir)
+	bootstrap := cb.LoadBootstrapFiles()
+
+	if !strings.Contains(bootstrap, "Always be concise") {
+		t.Fatalf("expected workspace RULES.md in bootstrap, got %q", bootstrap)
+	}
+	if !strings.Contains(bootstrap, "## RULES.md") {
+		t.Fatalf("expected RULES.md heading in bootstrap, got %q", bootstrap)
 	}
 }
 

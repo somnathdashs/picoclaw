@@ -31,11 +31,19 @@ type CronPayload struct {
 	To      string `json:"to,omitempty"`
 }
 
+type CronRunRecord struct {
+	RunAtMS    int64  `json:"runAtMs"`
+	DurationMS int64  `json:"durationMs"`
+	Status     string `json:"status"`
+	Error      string `json:"error,omitempty"`
+}
+
 type CronJobState struct {
-	NextRunAtMS *int64 `json:"nextRunAtMs,omitempty"`
-	LastRunAtMS *int64 `json:"lastRunAtMs,omitempty"`
-	LastStatus  string `json:"lastStatus,omitempty"`
-	LastError   string `json:"lastError,omitempty"`
+	NextRunAtMS *int64          `json:"nextRunAtMs,omitempty"`
+	LastRunAtMS *int64          `json:"lastRunAtMs,omitempty"`
+	LastStatus  string          `json:"lastStatus,omitempty"`
+	LastError   string          `json:"lastError,omitempty"`
+	History     []CronRunRecord `json:"history,omitempty"`
 }
 
 type CronJob struct {
@@ -261,13 +269,24 @@ func (cs *CronService) executeJobByID(jobID string) {
 	job.State.LastRunAtMS = &startTime
 	job.UpdatedAtMS = time.Now().UnixMilli()
 
+	record := CronRunRecord{
+		RunAtMS:    startTime,
+		DurationMS: execDuration,
+		Status:     "ok",
+	}
 	if err != nil {
 		job.State.LastStatus = "error"
 		job.State.LastError = err.Error()
+		record.Status = "error"
+		record.Error = err.Error()
 		log.Printf("[cron] ✗ job '%s' failed after %dms: %v", job.Name, execDuration, err)
 	} else {
 		job.State.LastStatus = "ok"
 		job.State.LastError = ""
+	}
+	job.State.History = append([]CronRunRecord{record}, job.State.History...)
+	if len(job.State.History) > 20 {
+		job.State.History = job.State.History[:20]
 	}
 
 	// Compute next run time

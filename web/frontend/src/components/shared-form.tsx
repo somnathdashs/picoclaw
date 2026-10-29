@@ -16,6 +16,7 @@ type FieldLayout = "default" | "setting-row"
 interface FieldProps {
   label: string
   hint?: string
+  description?: string
   error?: string
   required?: boolean
   children: ReactNode
@@ -26,12 +27,15 @@ interface FieldProps {
 export function Field({
   label,
   hint,
+  description,
   error,
   required,
   children,
   layout = "default",
   controlClassName,
 }: FieldProps) {
+  const effectiveHint = hint || description
+
   if (layout === "setting-row") {
     return (
       <div className="flex flex-col gap-4 py-4 md:grid md:grid-cols-[280px_minmax(0,1fr)] md:items-center md:gap-8">
@@ -40,9 +44,9 @@ export function Field({
             {label}
             {required && <span className="text-destructive ml-1">*</span>}
           </FieldLabel>
-          {hint && (
+          {effectiveHint && (
             <FieldDescription className="mt-1 text-xs leading-relaxed break-words whitespace-normal">
-              {hint}
+              {effectiveHint}
             </FieldDescription>
           )}
         </div>
@@ -70,9 +74,9 @@ export function Field({
           {label}
           {required && <span className="text-destructive ml-1">*</span>}
         </FieldLabel>
-        {hint && (
+        {effectiveHint && (
           <FieldDescription className="text-xs leading-normal">
-            {hint}
+            {effectiveHint}
           </FieldDescription>
         )}
       </div>
@@ -129,6 +133,7 @@ export function KeyInput({
 interface SwitchCardFieldProps {
   label: string
   hint?: string
+  description?: string
   error?: string
   checked: boolean
   onCheckedChange: (checked: boolean) => void
@@ -142,6 +147,7 @@ interface SwitchCardFieldProps {
 export function SwitchCardField({
   label,
   hint,
+  description,
   error,
   checked,
   onCheckedChange,
@@ -151,6 +157,8 @@ export function SwitchCardField({
   layout = "default",
   transparent,
 }: SwitchCardFieldProps) {
+  const effectiveHint = hint || description
+
   if (layout === "setting-row") {
     return (
       <div className="flex flex-col gap-4 py-4 md:grid md:grid-cols-[280px_minmax(0,1fr)] md:items-center md:gap-8">
@@ -158,9 +166,9 @@ export function SwitchCardField({
           <p className="text-sm leading-relaxed font-medium break-words whitespace-normal">
             {label}
           </p>
-          {hint && (
+          {effectiveHint && (
             <p className="text-muted-foreground mt-1 text-xs leading-relaxed break-words whitespace-normal">
-              {hint}
+              {effectiveHint}
             </p>
           )}
         </div>
@@ -195,9 +203,9 @@ export function SwitchCardField({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium">{label}</p>
-          {hint && (
+          {effectiveHint && (
             <p className="text-muted-foreground mt-0.5 text-xs leading-normal">
-              {hint}
+              {effectiveHint}
             </p>
           )}
         </div>

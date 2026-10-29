@@ -17,7 +17,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"),
+      "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
   build: {
@@ -26,15 +26,22 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: "http://localhost:18800",
+        target: "http://127.0.0.1:18800",
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq) => {
+            proxyReq.setHeader("Origin", "http://127.0.0.1:18800")
+            proxyReq.setHeader("Referer", "http://127.0.0.1:18800/")
+            proxyReq.setHeader("Sec-Fetch-Site", "same-origin")
+          })
+        },
       },
       "/pico/media": {
-        target: "http://localhost:18800",
+        target: "http://127.0.0.1:18800",
         changeOrigin: true,
       },
       "/pico/ws": {
-        target: "ws://localhost:18800",
+        target: "ws://127.0.0.1:18800",
         ws: true,
       },
     },

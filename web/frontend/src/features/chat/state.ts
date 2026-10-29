@@ -12,7 +12,11 @@ export function readStoredSessionId(): string {
 }
 
 export function writeStoredSessionId(sessionId: string) {
-  if (sessionId) {
+  if (
+    sessionId &&
+    !sessionId.startsWith("temp-") &&
+    !sessionId.startsWith("temporary-")
+  ) {
     globalThis.localStorage?.setItem(LAST_SESSION_STORAGE_KEY, sessionId)
     return
   }
@@ -50,8 +54,16 @@ export function generateSessionId(): string {
   return `session-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
 }
 
+export function generateTemporarySessionId(): string {
+  return `temp-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+}
+
 export function getInitialActiveSessionId(): string {
-  return readStorageValue() || generateSessionId()
+  const val = readStorageValue()
+  if (val && !val.startsWith("temp-") && !val.startsWith("temporary-")) {
+    return val
+  }
+  return generateSessionId()
 }
 
 export function normalizeUnixTimestamp(timestamp: number): number {

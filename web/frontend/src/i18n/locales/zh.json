@@ -13,7 +13,12 @@
     "show_more_channels": "更多",
     "show_less_channels": "收起",
     "config": "配置",
-    "logs": "日志"
+    "logs": "日志",
+    "more": "更多",
+    "chat_history": "对话历史",
+    "search_chats": "搜索对话...",
+    "view_more": "查看全部",
+    "no_chats_found": "未找到对话"
   },
   "launcherLogin": {
     "title": "登录",
