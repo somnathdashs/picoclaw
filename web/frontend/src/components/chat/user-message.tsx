@@ -26,6 +26,48 @@ interface UserMessageProps {
   onEdit?: (newText: string) => void
 }
 
+function renderSpecialQueryTokens(text: string, inTerminalMode: boolean) {
+  if (!text) return null
+  const regex = /(^|\s)([\/#][a-zA-Z0-9_-]+)/g
+  const elements: React.ReactNode[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(text)) !== null) {
+    const precedingIndex = match.index + match[1].length
+    if (precedingIndex > lastIndex) {
+      elements.push(text.slice(lastIndex, precedingIndex))
+    }
+
+    const token = match[2]
+    const isCommand = token.startsWith("/")
+    elements.push(
+      <span
+        key={`token-${match.index}`}
+        className={cn(
+          "inline-flex items-center px-1.5 py-0.5 rounded-md font-mono text-[13px] font-semibold mx-0.5 transition-colors align-baseline",
+          inTerminalMode
+            ? isCommand
+              ? "bg-violet-500/20 text-violet-400 border border-violet-500/30"
+              : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+            : isCommand
+              ? "bg-white/20 text-white border border-white/30"
+              : "bg-amber-400/30 text-amber-100 border border-amber-300/40",
+        )}
+      >
+        {token}
+      </span>,
+    )
+    lastIndex = match.index + match[0].length
+  }
+
+  if (lastIndex < text.length) {
+    elements.push(text.slice(lastIndex))
+  }
+
+  return elements
+}
+
 export function UserMessage({
   content,
   attachments = [],
@@ -154,10 +196,10 @@ export function UserMessage({
                   <span className="font-bold text-emerald-600 select-none dark:text-emerald-400">
                     ❯
                   </span>
-                  <span className="mt-[1px]">{content}</span>
+                  <span className="mt-[1px]">{renderSpecialQueryTokens(content, true)}</span>
                 </div>
               ) : (
-                content
+                renderSpecialQueryTokens(content, false)
               )}
             </div>
           </div>

@@ -162,6 +162,9 @@ func isLikelyGatewayProcess(pid int) (bool, bool) {
 	if pid <= 0 {
 		return false, true
 	}
+	if !ppid.IsProcessRunning(pid) {
+		return false, true
+	}
 
 	if runtime.GOOS == "windows" {
 		psCmd := fmt.Sprintf(
@@ -841,10 +844,9 @@ func isCmdProcessAliveLocked(cmd *exec.Cmd) bool {
 		return false
 	}
 
-	// Windows does not support Signal(0) probing. If we still own cmd and it
-	// has not reported exit, treat it as alive.
+	// On Windows, use kernel32 OpenProcess/GetExitCodeProcess check via ppid.
 	if runtime.GOOS == "windows" {
-		return true
+		return ppid.IsProcessRunning(cmd.Process.Pid)
 	}
 
 	err := cmd.Process.Signal(syscall.Signal(0))
@@ -963,8 +965,12 @@ func stopGatewayLocked() (int, error) {
 
 	pid := gateway.cmd.Process.Pid
 	if !gateway.owned {
-		if isGateway, inspected := gatewayProcessMatcher(pid); inspected && !isGateway {
-			return pid, fmt.Errorf("refuse to stop non-gateway process (PID %d)", pid)
+		if ppid.IsProcessRunning(pid) {
+			if isGateway, inspected := gatewayProcessMatcher(pid); inspected && !isGateway {
+				return pid, fmt.Errorf("refuse to stop non-gateway process (PID %d)", pid)
+			}
+		} else {
+			return pid, nil
 		}
 	}
 
@@ -1327,14 +1333,16 @@ func (h *Handler) RestartGateway() (int, error) {
 	gateway.mu.Unlock()
 
 	if previousCmd != nil && previousCmd.Process != nil && !previousOwned {
-		if isGateway, inspected := gatewayProcessMatcher(previousCmd.Process.Pid); inspected && !isGateway {
-			logger.Warnf("refuse restarting non-gateway process (PID: %d)", previousCmd.Process.Pid)
-			gateway.mu.Lock()
-			if gateway.cmd == previousCmd {
-				setGatewayRuntimeStatusLocked("running")
+		if ppid.IsProcessRunning(previousCmd.Process.Pid) {
+			if isGateway, inspected := gatewayProcessMatcher(previousCmd.Process.Pid); inspected && !isGateway {
+				logger.Warnf("refuse restarting non-gateway process (PID: %d)", previousCmd.Process.Pid)
+				gateway.mu.Lock()
+				if gateway.cmd == previousCmd {
+					setGatewayRuntimeStatusLocked("running")
+				}
+				gateway.mu.Unlock()
+				return 0, fmt.Errorf("refuse to restart non-gateway process (PID %d)", previousCmd.Process.Pid)
 			}
-			gateway.mu.Unlock()
-			return 0, fmt.Errorf("refuse to restart non-gateway process (PID %d)", previousCmd.Process.Pid)
 		}
 	}
 

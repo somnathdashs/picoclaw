@@ -11,16 +11,30 @@ import {
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react"
+import { useQuery } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
 import TextareaAutosize from "react-textarea-autosize"
 
+import { getSkills } from "@/api/skills"
 import { AttachmentPopup } from "@/components/chat/attachment-sheet"
 import { CameraCaptureDialog } from "@/components/chat/camera-capture-dialog"
+import { CommandSuggestions } from "@/components/chat/command-suggestions"
 import { ContextUsageRing } from "@/components/chat/context-usage-ring"
+import { SkillSuggestions } from "@/components/chat/skill-suggestions"
 import { Button } from "@/components/ui/button"
+import {
+  DEFAULT_SKILLS,
+  filterSkills,
+  type SkillSuggestion,
+} from "@/features/chat/skill-suggestions"
+import {
+  filterSlashCommands,
+  type SlashCommand,
+} from "@/features/chat/slash-commands"
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition"
 import { cn } from "@/lib/utils"
 import type { ChatAttachment, ContextUsage } from "@/store/chat"
@@ -62,6 +76,54 @@ interface ChatComposerProps {
   footer?: React.ReactNode
 }
 
+// Render highlighted tokens for slash commands (violet) and skills (amber)
+function renderHighlightedContent(text: string) {
+  if (!text) return null
+  const regex = /(^|\s)([\/#][a-zA-Z0-9_-]*)/g
+  const elements: React.ReactNode[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(text)) !== null) {
+    const precedingIndex = match.index + match[1].length
+    if (precedingIndex > lastIndex) {
+      elements.push(
+        <span key={`text-${lastIndex}`}>
+          {text.slice(lastIndex, precedingIndex)}
+        </span>,
+      )
+    }
+
+    const token = match[2]
+    const isCommand = token.startsWith("/")
+    elements.push(
+      <span
+        key={`token-${match.index}`}
+        className={cn(
+          "font-semibold rounded-[4px] px-1 -mx-1 py-0.5 box-decoration-clone shadow-2xs transition-colors",
+          isCommand
+            ? "bg-violet-500/15 text-violet-600 dark:bg-violet-500/25 dark:text-violet-300 ring-1 ring-violet-500/35 dark:ring-violet-400/35"
+            : "bg-amber-500/15 text-amber-600 dark:bg-amber-500/25 dark:text-amber-300 ring-1 ring-amber-500/35 dark:ring-amber-400/35",
+        )}
+      >
+        {token}
+      </span>,
+    )
+    lastIndex = match.index + match[0].length
+  }
+
+  if (lastIndex < text.length) {
+    elements.push(<span key="text-end">{text.slice(lastIndex)}</span>)
+  }
+
+  return (
+    <>
+      {elements}
+      {text.endsWith("\n") && "\u200B"}
+    </>
+  )
+}
+
 export function ChatComposer({
   input,
   attachments,
@@ -90,8 +152,12 @@ export function ChatComposer({
   const canInput = inputDisabledReason === null
   const composingRef = useRef(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const backdropRef = useRef<HTMLDivElement>(null)
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false)
   const [isCameraOpen, setIsCameraOpen] = useState(false)
+  const [cursorPos, setCursorPos] = useState(0)
+  const [isDismissed, setIsDismissed] = useState(false)
+  const [selectedIndex, setSelectedIndex] = useState(0)
   const hasInput = input.trim().length > 0 || attachments.length > 0
 
   useEffect(() => {
@@ -102,6 +168,92 @@ export function ChatComposer({
       return () => clearTimeout(timer)
     }
   }, [canInput])
+
+  const { data: skillsData } = useQuery({
+    queryKey: ["skills"],
+    queryFn: getSkills,
+    staleTime: 60000,
+  })
+
+  const allSkills = useMemo(() => {
+    if (!skillsData?.skills || skillsData.skills.length === 0) {
+      return DEFAULT_SKILLS
+    }
+    const map = new Map<string, SkillSuggestion>()
+    for (const d of DEFAULT_SKILLS) {
+      map.set(d.name, d)
+    }
+    for (const s of skillsData.skills) {
+      map.set(s.name, {
+        name: s.name,
+        trigger: `#${s.name}`,
+        description: s.description || map.get(s.name)?.description || "",
+      })
+    }
+    return Array.from(map.values())
+  }, [skillsData])
+
+  const triggerInfo = useMemo(() => {
+    if (isDismissed) return null
+    const textBefore = input.slice(0, cursorPos)
+    const match = textBefore.match(/(?:^|\s)([\/#][a-zA-Z0-9_-]*)$/)
+    if (!match) return null
+
+    const triggerWord = match[1]
+    const triggerType = triggerWord[0] as "/" | "#"
+    const startIndex = cursorPos - triggerWord.length
+    let endIndex = cursorPos
+    while (endIndex < input.length && !/\s/.test(input[endIndex])) {
+      endIndex++
+    }
+
+    const query = triggerWord.slice(1)
+    if (triggerType === "/") {
+      const filtered = filterSlashCommands(query)
+      return {
+        type: "/" as const,
+        query,
+        startIndex,
+        endIndex,
+        commands: filtered,
+      }
+    } else {
+      const filtered = filterSkills(allSkills, query)
+      return {
+        type: "#" as const,
+        query,
+        startIndex,
+        endIndex,
+        skills: filtered,
+      }
+    }
+  }, [input, cursorPos, isDismissed, allSkills])
+
+  const activeCount =
+    triggerInfo?.type === "/"
+      ? triggerInfo.commands.length
+      : triggerInfo?.type === "#"
+        ? triggerInfo.skills.length
+        : 0
+
+  useEffect(() => {
+    setSelectedIndex(0)
+  }, [activeCount, triggerInfo?.query, triggerInfo?.type])
+
+  useEffect(() => {
+    if (!triggerInfo) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        textareaRef.current &&
+        !textareaRef.current.contains(e.target as Node)
+      ) {
+        setIsDismissed(true)
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside)
+    return () => document.removeEventListener("mousedown", handleClickOutside)
+  }, [triggerInfo])
+
   const disabledMessage =
     inputDisabledReason === null
       ? null
@@ -112,6 +264,64 @@ export function ChatComposer({
     onTranscript: onInputChange,
     currentValue: input,
   })
+
+  const handleSelectCommand = (cmd: SlashCommand) => {
+    if (!triggerInfo || triggerInfo.type !== "/") return
+    const before = input.slice(0, triggerInfo.startIndex)
+    const after = input.slice(triggerInfo.endIndex)
+    const replacement = `${cmd.command} `
+    const nextValue = `${before}${replacement}${after.replace(/^\s*/, "")}`
+    onInputChange(nextValue)
+    const nextCursor = before.length + replacement.length
+    setCursorPos(nextCursor)
+    setIsDismissed(true)
+
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        textareaRef.current.setSelectionRange(nextCursor, nextCursor)
+      }
+    }, 10)
+  }
+
+  const handleSelectSkill = (skill: SkillSuggestion) => {
+    if (!triggerInfo || triggerInfo.type !== "#") return
+    const before = input.slice(0, triggerInfo.startIndex)
+    const after = input.slice(triggerInfo.endIndex)
+    const replacement = `#${skill.name} `
+    const nextValue = `${before}${replacement}${after.replace(/^\s*/, "")}`
+    onInputChange(nextValue)
+    const nextCursor = before.length + replacement.length
+    setCursorPos(nextCursor)
+    setIsDismissed(true)
+
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        textareaRef.current.setSelectionRange(nextCursor, nextCursor)
+      }
+    }, 10)
+  }
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value
+    onInputChange(val)
+    setCursorPos(e.target.selectionStart ?? val.length)
+    setIsDismissed(false)
+  }
+
+  const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+    if (backdropRef.current) {
+      backdropRef.current.scrollTop = e.currentTarget.scrollTop
+    }
+  }
+
+  const handleCursorUpdate = (
+    e: React.SyntheticEvent<HTMLTextAreaElement>,
+  ) => {
+    const target = e.target as HTMLTextAreaElement
+    setCursorPos(target.selectionStart ?? 0)
+  }
 
   const handleKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     const nativeEvent = e.nativeEvent as Event & {
@@ -125,6 +335,34 @@ export function ChatComposer({
     ) {
       return
     }
+
+    if (triggerInfo && activeCount > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault()
+        setSelectedIndex((prev) => (prev + 1) % activeCount)
+        return
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault()
+        setSelectedIndex((prev) => (prev - 1 + activeCount) % activeCount)
+        return
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault()
+        if (triggerInfo.type === "/") {
+          handleSelectCommand(triggerInfo.commands[selectedIndex])
+        } else {
+          handleSelectSkill(triggerInfo.skills[selectedIndex])
+        }
+        return
+      }
+      if (e.key === "Escape") {
+        e.preventDefault()
+        setIsDismissed(true)
+        return
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       onSend()
@@ -144,6 +382,22 @@ export function ChatComposer({
           onDragOver={onDragOver}
           onDrop={onDrop}
         >
+          {triggerInfo?.type === "/" && triggerInfo.commands.length > 0 && (
+            <CommandSuggestions
+              commands={triggerInfo.commands}
+              selectedIndex={selectedIndex}
+              onSelect={handleSelectCommand}
+            />
+          )}
+
+          {triggerInfo?.type === "#" && triggerInfo.skills.length > 0 && (
+            <SkillSuggestions
+              skills={triggerInfo.skills}
+              selectedIndex={selectedIndex}
+              onSelect={handleSelectSkill}
+            />
+          )}
+
           {isDragActive && (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-violet-400/70 bg-violet-500/10">
               <div className="bg-background/95 text-foreground rounded-full px-4 py-2 text-sm font-medium shadow-sm">
@@ -203,28 +457,45 @@ export function ChatComposer({
               </Button>
             </AttachmentPopup>
 
-            <TextareaAutosize
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => onInputChange(e.target.value)}
-              onCompositionStart={() => {
-                composingRef.current = true
-              }}
-              onCompositionEnd={() => {
-                composingRef.current = false
-              }}
-              onPaste={onPaste}
-              onKeyDown={handleKeyDown}
-              placeholder={placeholder}
-              disabled={!canInput}
-              title={disabledMessage || undefined}
-              className={cn(
-                "placeholder:text-muted-foreground/50 max-h-[160px] min-h-[32px] flex-1 resize-none border-0 bg-transparent px-1.5 py-1 text-sm leading-relaxed shadow-none transition-colors focus-visible:ring-0 focus-visible:outline-none dark:bg-transparent",
-                !canInput && "cursor-not-allowed",
-              )}
-              minRows={1}
-              maxRows={6}
-            />
+            <div className="relative flex-1 min-w-0">
+              <div
+                ref={backdropRef}
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 max-h-[160px] min-h-[32px] overflow-hidden px-1.5 py-1 font-sans text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground select-none"
+              >
+                {renderHighlightedContent(input)}
+              </div>
+
+              <TextareaAutosize
+                ref={textareaRef}
+                value={input}
+                onChange={handleInputChange}
+                onScroll={handleScroll}
+                onSelect={handleCursorUpdate}
+                onKeyUp={handleCursorUpdate}
+                onClick={handleCursorUpdate}
+                onCompositionStart={() => {
+                  composingRef.current = true
+                }}
+                onCompositionEnd={() => {
+                  composingRef.current = false
+                }}
+                onPaste={onPaste}
+                onKeyDown={handleKeyDown}
+                placeholder={placeholder}
+                disabled={!canInput}
+                title={disabledMessage || undefined}
+                className={cn(
+                  "relative z-10 max-h-[160px] min-h-[32px] w-full resize-none border-0 bg-transparent px-1.5 py-1 font-sans text-sm leading-relaxed shadow-none transition-colors focus-visible:ring-0 focus-visible:outline-none dark:bg-transparent",
+                  input
+                    ? "text-transparent caret-foreground selection:bg-primary/25 selection:text-transparent"
+                    : "text-foreground",
+                  !canInput && "cursor-not-allowed",
+                )}
+                minRows={1}
+                maxRows={6}
+              />
+            </div>
 
             <div className="flex items-center gap-1 shrink-0 mb-0.5">
               {contextUsage && (

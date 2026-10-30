@@ -19,6 +19,11 @@ const pidFileName = ".picoclaw.pid"
 
 var errInvalidPidFile = errors.New("invalid pid file")
 
+// IsProcessRunning checks whether a process with the given PID is alive.
+func IsProcessRunning(pid int) bool {
+	return isProcessRunning(pid)
+}
+
 // PidFileData is the JSON structure stored in the PID file.
 type PidFileData struct {
 	PID     int    `json:"pid"`

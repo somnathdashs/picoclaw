@@ -127,5 +127,37 @@ The chat box features a versatile popup menu for adding media and managing model
   - Automatically updates the model's thinking configuration and refreshes the gateway just like the Models management page.
 - **Cross-Platform & Responsive**: Adapts seamlessly to all screen sizes, from smartwatches and smartphones to tablets, desktops, and Android TVs.
 
+---
 
+### 12. Slash Commands (`/`) Autocomplete & Visual Highlighting
+
+The composer provides instant discoverability and visual cues when using built-in agent slash commands:
+
+- **Autocomplete Popup on `/`**:
+  - Typing `/` anywhere in the chat box opens a clean suggestions list directly above the composer.
+  - Matches filter live as you type the command keyword (e.g. `start`, `help`, `stop`, `clear`, `context`, `btw`, `show model`, `list models`, `switch model`, etc.).
+  - Clean, minimal row format showing the command name and description side by side without clutter.
+  - Fully navigable with keyboard (`↑` and `↓` arrow keys to move, `Enter` or `Tab` to select, `Esc` to dismiss) and tap/click friendly on mobile and touch devices.
+- **Visual Command Highlighting in Chatbox**:
+  - Valid command tokens (such as `/<command>`) render with distinct violet chip tag styling with subtle borders directly inside both the composer and user message bubbles.
+  - Arguments and ordinary prompt text remain in standard font color, making it easy to distinguish commands from message parameters.
+- **Responsive Across Screens**:
+  - Scales gracefully from smartwatches and mobile viewports up to Android TVs with remote/D-pad navigation support.
+
+---
+
+### 13. Skill Suggestions (`#`) & Visual Highlighting
+
+Quickly reference and invoke installed agent skills directly from the chat box:
+
+- **Autocomplete Popup on `#`**:
+  - Typing `#` opens an interactive skills suggestion popup immediately above the composer.
+  - Dynamically filters installed skills as you type (e.g. `#weather`, `#github`, `#summarize`, `#tmux`, `#skill-creator`, etc.).
+  - Displays skill names and clean descriptions without category tags on the right for a streamlined, focused look.
+  - Supports keyboard navigation (`↑`/`↓` to cycle, `Enter` or `Tab` to select, `Esc` to dismiss) as well as touch/mouse selection.
+- **Visual Skill Highlighting in Chatbox**:
+  - Skill tokens (such as `&#35;<skill-name>`) render with distinct amber/gold chip tag styling with subtle borders inside both the composer text field and user message bubbles.
+  - Commands (`/<cmd>`) and skills (`#<skill>`) remain visually distinct from each other and from regular query text.
+- **Cross-Platform Responsive**:
+  - Adapts to small watch viewports, mobile screens, tablets, desktops, and TV interfaces with remote control navigation.
 
