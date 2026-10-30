@@ -2,8 +2,8 @@ import {
   IconArrowUp,
   IconMicrophone,
   IconMicrophoneOff,
-  IconPhotoPlus,
   IconPlayerStopFilled,
+  IconPlus,
   IconX,
 } from "@tabler/icons-react"
 import {
@@ -12,10 +12,13 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
   useRef,
+  useState,
 } from "react"
 import { useTranslation } from "react-i18next"
 import TextareaAutosize from "react-textarea-autosize"
 
+import { AttachmentPopup } from "@/components/chat/attachment-sheet"
+import { CameraCaptureDialog } from "@/components/chat/camera-capture-dialog"
 import { ContextUsageRing } from "@/components/chat/context-usage-ring"
 import { Button } from "@/components/ui/button"
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition"
@@ -39,6 +42,7 @@ interface ChatComposerProps {
   attachments: ChatAttachment[]
   onInputChange: (value: string) => void
   onAddImages: () => void
+  onCaptureImage?: (file: File) => void
   onPaste: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void
   onDragEnter: (event: ReactDragEvent<HTMLDivElement>) => void
   onDragLeave: (event: ReactDragEvent<HTMLDivElement>) => void
@@ -53,6 +57,8 @@ interface ChatComposerProps {
   onStop?: () => void
   isDragActive: boolean
   contextUsage?: ContextUsage
+  thinkingLevel?: string
+  onUpdateThinkingLevel?: (level: string) => Promise<void> | void
   footer?: React.ReactNode
 }
 
@@ -61,6 +67,7 @@ export function ChatComposer({
   attachments,
   onInputChange,
   onAddImages,
+  onCaptureImage,
   onPaste,
   onDragEnter,
   onDragLeave,
@@ -75,12 +82,16 @@ export function ChatComposer({
   onStop,
   isDragActive,
   contextUsage,
+  thinkingLevel,
+  onUpdateThinkingLevel,
   footer,
 }: ChatComposerProps) {
   const { t } = useTranslation()
   const canInput = inputDisabledReason === null
   const composingRef = useRef(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [isAttachmentOpen, setIsAttachmentOpen] = useState(false)
+  const [isCameraOpen, setIsCameraOpen] = useState(false)
   const hasInput = input.trim().length > 0 || attachments.length > 0
 
   useEffect(() => {
@@ -168,18 +179,29 @@ export function ChatComposer({
           )}
 
           <div className="flex w-full items-end gap-1.5 sm:gap-2">
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="text-muted-foreground hover:text-foreground h-7 w-7 sm:h-8 sm:w-8 shrink-0 rounded-full mb-0.5"
-              onClick={onAddImages}
-              disabled={!canInput}
-              aria-label={t("chat.attachImage")}
-              title={t("chat.attachImage")}
+            <AttachmentPopup
+              open={isAttachmentOpen}
+              onOpenChange={setIsAttachmentOpen}
+              onPickImage={onAddImages}
+              onCaptureImage={() => setIsCameraOpen(true)}
+              thinkingLevel={thinkingLevel}
+              onUpdateThinkingLevel={onUpdateThinkingLevel}
             >
-              <IconPhotoPlus className="size-4" />
-            </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "text-muted-foreground hover:text-foreground h-7 w-7 sm:h-8 sm:w-8 shrink-0 rounded-full mb-0.5 transition-all duration-200 active:scale-95",
+                  isAttachmentOpen && "bg-muted text-foreground rotate-45",
+                )}
+                disabled={!canInput}
+                aria-label={t("chat.addAttachment", "Add attachment")}
+                title={t("chat.addAttachment", "Add attachment")}
+              >
+                <IconPlus className="size-4" />
+              </Button>
+            </AttachmentPopup>
 
             <TextareaAutosize
               ref={textareaRef}
@@ -299,6 +321,12 @@ export function ChatComposer({
 
         {footer && <div className="mt-1.5 w-full">{footer}</div>}
       </div>
+
+      <CameraCaptureDialog
+        open={isCameraOpen}
+        onOpenChange={setIsCameraOpen}
+        onCapture={(file) => onCaptureImage?.(file)}
+      />
     </div>
   )
 }

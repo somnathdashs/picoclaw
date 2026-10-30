@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
-import { type ModelInfo, getModels, setDefaultModel } from "@/api/models"
+import {
+  type ModelInfo,
+  getModels,
+  setDefaultModel,
+  updateModel,
+} from "@/api/models"
 import { showSaveSuccessOrRestartToast } from "@/lib/restart-required"
 import { refreshGatewayState } from "@/store/gateway"
 
@@ -144,13 +149,68 @@ export function useChatModels({ isConnected = false }: UseChatModelsOptions = {}
     [defaultSelectableModels],
   )
 
+  const currentModel = useMemo(
+    () => modelList.find((m) => m.model_name === defaultModelName) ?? null,
+    [modelList, defaultModelName],
+  )
+
+  const handleUpdateThinking = useCallback(
+    async (thinkingLevel: string) => {
+      const targetModel = modelList.find((m) => m.model_name === defaultModelName)
+      if (!targetModel) {
+        toast.error(t("chat.empty.noSelectedModel", "No model selected"))
+        return
+      }
+
+      try {
+        await updateModel(targetModel.index, {
+          model_name: targetModel.model_name,
+          provider: targetModel.provider,
+          model: targetModel.model,
+          api_base: targetModel.api_base,
+          api_key: targetModel.api_key,
+          proxy: targetModel.proxy,
+          auth_method: targetModel.auth_method,
+          connect_mode: targetModel.connect_mode,
+          workspace: targetModel.workspace,
+          rpm: targetModel.rpm,
+          max_tokens_field: targetModel.max_tokens_field,
+          request_timeout: targetModel.request_timeout,
+          thinking_level: thinkingLevel.trim() || undefined,
+          tool_schema_transform: targetModel.tool_schema_transform,
+          streaming: targetModel.streaming,
+          extra_body: targetModel.extra_body,
+          custom_headers: targetModel.custom_headers,
+        })
+        await loadModels()
+        const gateway = await refreshGatewayState({ force: true })
+        showSaveSuccessOrRestartToast(
+          t,
+          t("models.edit.saveSuccess", "Model updated successfully"),
+          targetModel.model_name,
+          gateway?.restartRequired === true,
+        )
+      } catch (err) {
+        console.error("Failed to update thinking level:", err)
+        toast.error(
+          err instanceof Error
+            ? err.message
+            : t("models.edit.saveError", "Failed to update model"),
+        )
+      }
+    },
+    [defaultModelName, modelList, loadModels, t],
+  )
+
   return {
     defaultModelName,
+    currentModel,
     hasAvailableModels,
     apiKeyModels,
     oauthModels,
     localModels,
     settingDefault,
     handleSetDefault,
+    handleUpdateThinking,
   }
 }

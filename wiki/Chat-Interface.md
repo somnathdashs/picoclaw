@@ -110,3 +110,22 @@ PicoClaw lets you define persistent custom rules and instructions that guide mod
 - **Fast Save & Keyboard Shortcut**: Save changes immediately with the Save button or press `Ctrl+S` (`Cmd+S`). Rules are automatically injected into the model's prompt on every turn.
 - **Responsive Layout**: Designed to adapt gracefully from smartwatches and mobile screens up to desktop monitors and Android TVs.
 
+---
+
+### 11. Image Attachments, Camera Capture & Thinking Slider
+
+The chat box features a versatile popup menu for adding media and managing model thinking directly from the composer:
+
+- **Plus Icon Button**: A modern `+` button in the composer bar rotates into a cancel `✕` icon when open.
+- **Animated Popup Above Chatbox**:
+  - Pops up smoothly directly above the chat box with slide and fade animation.
+  - **Capture image**: Opens a full live camera viewfinder directly in the app with snapshot preview, retake, photo confirmation, and camera switching.
+  - **Pick image**: Quick access to browse and select images from your device library or files.
+- **Thinking Slider**:
+  - Located directly inside the `+` popup for the currently active AI model.
+  - Interactive slider allowing you to switch between: **Off**, **Low**, **Med**, **High**, **Max**, and **Auto (Adaptive)**.
+  - Automatically updates the model's thinking configuration and refreshes the gateway just like the Models management page.
+- **Cross-Platform & Responsive**: Adapts seamlessly to all screen sizes, from smartwatches and smartphones to tablets, desktops, and Android TVs.
+
+
+

@@ -468,12 +468,14 @@ export function ChatPage() {
 
   const {
     defaultModelName,
+    currentModel,
     hasAvailableModels,
     apiKeyModels,
     oauthModels,
     localModels,
     settingDefault,
     handleSetDefault,
+    handleUpdateThinking,
   } = useChatModels({ isConnected: isGatewayRunning })
   const hasDefaultModel = Boolean(defaultModelName) || hasAvailableModels
   const inputDisabledReason = resolveChatInputDisabledReason({
@@ -1116,6 +1118,7 @@ export function ChatPage() {
         attachments={attachments}
         onInputChange={setInput}
         onAddImages={handleAddImages}
+        onCaptureImage={(file) => void appendImageFiles([file])}
         onPaste={handleComposerPaste}
         onDragEnter={handleComposerDragEnter}
         onDragLeave={handleComposerDragLeave}
@@ -1134,7 +1137,8 @@ export function ChatPage() {
         canSend={canSubmit}
         isDragActive={isDragActive}
         contextUsage={contextUsage}
-
+        thinkingLevel={currentModel?.thinking_level ?? ""}
+        onUpdateThinkingLevel={handleUpdateThinking}
       />
 
       {!isAtBottom && messages.length > 0 && (
