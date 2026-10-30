@@ -55,37 +55,34 @@ const CACHE_KEY = "picoclaw_sessions_cache"
 
 export function getCachedSessions(): SessionSummary[] {
   try {
-    const raw = localStorage.getItem(CACHE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : (parsed.sessions || [])
+    globalThis.localStorage?.removeItem(CACHE_KEY)
   } catch {
-    return []
+    // Ignore storage errors
+  }
+  return []
+}
+
+export function setCachedSessions(_sessions: SessionSummary[]): void {
+  try {
+    globalThis.localStorage?.removeItem(CACHE_KEY)
+  } catch {
+    // Ignore storage errors
   }
 }
 
-export function setCachedSessions(sessions: SessionSummary[]): void {
+export function removeCachedSession(_id: string): void {
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(sessions))
+    globalThis.localStorage?.removeItem(CACHE_KEY)
   } catch {
-    // Ignore localStorage write error
-  }
-}
-
-export function removeCachedSession(id: string): void {
-  try {
-    const cached = getCachedSessions()
-    setCachedSessions(cached.filter((s) => s.id !== id))
-  } catch {
-    // Ignore localStorage write error
+    // Ignore storage errors
   }
 }
 
 export function clearCachedSessions(): void {
   try {
-    localStorage.removeItem(CACHE_KEY)
+    globalThis.localStorage?.removeItem(CACHE_KEY)
   } catch {
-    // Ignore localStorage write error
+    // Ignore storage errors
   }
 }
 

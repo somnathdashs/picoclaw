@@ -9,7 +9,9 @@ import {
   shouldShowAssistantMessage,
 } from "@/features/chat/detail-visibility"
 import {
+  clearStoredSessionId,
   getInitialActiveSessionId,
+  readStoredSessionId,
   writeStoredSessionId,
 } from "@/features/chat/state"
 
@@ -103,8 +105,54 @@ export const showAssistantDetailsAtom = atom(
 export const temporaryChatAtom = atom<boolean>(false)
 export const temporaryChatUseMemoryAtom = atom<boolean>(false)
 export const temporaryChatSaveMemoryAndFilesAtom = atom<boolean>(false)
+export const sessionListRevisionAtom = atom<number>(0)
+
+export interface LocalSessionMeta {
+  id: string
+  title: string
+  preview: string
+  updated: number
+}
+export const localSessionsAtom = atom<Record<string, LocalSessionMeta>>({})
 
 const store = getDefaultStore()
+
+export function bumpSessionListRevision() {
+  store.set(sessionListRevisionAtom, (rev) => rev + 1)
+}
+
+export function recordLocalSession(id: string, text: string) {
+  if (!id || id.startsWith("temp-") || id.startsWith("temporary-")) return
+  const clean = text.trim()
+  if (!clean) return
+  writeStoredSessionId(id)
+  store.set(localSessionsAtom, (prev) => {
+    const existing = prev[id]
+    return {
+      ...prev,
+      [id]: {
+        id,
+        title: existing?.title || clean.slice(0, 40),
+        preview: clean.slice(0, 80),
+        updated: Date.now(),
+      },
+    }
+  })
+  bumpSessionListRevision()
+}
+
+export function deleteLocalSession(id: string) {
+  if (readStoredSessionId() === id) {
+    clearStoredSessionId()
+  }
+  store.set(localSessionsAtom, (prev) => {
+    if (!prev[id]) return prev
+    const next = { ...prev }
+    delete next[id]
+    return next
+  })
+  bumpSessionListRevision()
+}
 
 export function getChatState() {
   return store.get(chatAtom)
@@ -120,6 +168,12 @@ export function updateChatStore(
     const next = { ...prev, ...nextPatch }
 
     if (next.activeSessionId !== prev.activeSessionId) {
+      if (next.messages.length > 0) {
+        writeStoredSessionId(next.activeSessionId)
+      } else {
+        clearStoredSessionId()
+      }
+    } else if (next.messages.length > 0 && prev.messages.length === 0) {
       writeStoredSessionId(next.activeSessionId)
     }
 
@@ -129,3 +183,4 @@ export function updateChatStore(
 
 export { shouldShowAssistantMessage, DEFAULT_ASSISTANT_DETAIL_VISIBILITY }
 export type { AssistantDetailVisibility }
+

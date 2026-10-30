@@ -540,11 +540,17 @@ func (al *AgentLoop) HardAbort(sessionKey string) error {
 	// Use isHardAbort=true for hard abort to immediately cancel all children.
 	ts.Finish(true)
 
-	// Roll back session history to the state before the turn started.
+	// Roll back session history. For a brand new session (initialHistoryLength == 0),
+	// preserve the initiating user message so the session is not lost.
+	// For ongoing sessions, roll back to the initial history length.
 	if ts.session != nil {
 		history := ts.session.GetHistory(sessionKey)
-		if ts.initialHistoryLength < len(history) {
-			ts.session.SetHistory(sessionKey, history[:ts.initialHistoryLength])
+		keepLen := ts.initialHistoryLength
+		if ts.initialHistoryLength == 0 && len(history) > 0 && history[0].Role == "user" {
+			keepLen = 1
+		}
+		if keepLen < len(history) {
+			ts.session.SetHistory(sessionKey, history[:keepLen])
 		}
 	}
 

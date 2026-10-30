@@ -187,8 +187,11 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 			// during turn setup. Each placeholder has a unique turnID to prevent
 			// cross-worker cleanup issues.
 			placeholder := &turnState{
-				turnID: makePendingTurnID(sessionKey, al.turnSeq.Add(1)),
-				phase:  TurnPhaseSetup,
+				turnID:      makePendingTurnID(sessionKey, al.turnSeq.Add(1)),
+				sessionKey:  sessionKey,
+				userMessage: msg.Content,
+				media:       append([]string(nil), msg.Media...),
+				phase:       TurnPhaseSetup,
 			}
 			if _, loaded := al.activeTurnStates.LoadOrStore(sessionKey, placeholder); loaded {
 				if al.tryHandleStopCommand(ctx, msg, sessionKey) {
@@ -275,6 +278,34 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 
 				if al.takePendingStop(sessionKey) {
 					al.releaseSessionTurnState(sessionKey, nil)
+					if agent := al.agentForSession(sessionKey); agent != nil && agent.Sessions != nil {
+						history := agent.Sessions.GetHistory(sessionKey)
+						userMsgPresent := false
+						for _, h := range history {
+							if h.Role == "user" {
+								userMsgPresent = true
+								break
+							}
+						}
+						if !userMsgPresent && (strings.TrimSpace(m.Content) != "" || len(m.Media) > 0) {
+							userMsg := providers.Message{
+								Role:    "user",
+								Content: m.Content,
+								Media:   append([]string(nil), m.Media...),
+							}
+							if len(history) > 0 {
+								agent.Sessions.SetHistory(sessionKey, append([]providers.Message{userMsg}, history...))
+							} else {
+								if len(m.Media) > 0 {
+									agent.Sessions.AddFullMessage(sessionKey, userMsg)
+								} else {
+									agent.Sessions.AddMessage(sessionKey, "user", m.Content)
+								}
+								agent.Sessions.AddMessage(sessionKey, "assistant", "Task stopped. Current task was canceled.")
+							}
+							_ = agent.Sessions.Save(sessionKey)
+						}
+					}
 					target := &continuationTarget{
 						SessionKey: sessionKey,
 						Channel:    m.Channel,

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { useAtomValue } from "jotai"
 
 import {
   type SessionSummary,
@@ -8,6 +9,13 @@ import {
   getCachedSessions,
   getSessions,
 } from "@/api/sessions"
+import {
+  chatAtom,
+  deleteLocalSession,
+  localSessionsAtom,
+  sessionListRevisionAtom,
+  temporaryChatAtom,
+} from "@/store/chat"
 
 const DEFAULT_LIMIT = 50
 
@@ -29,6 +37,11 @@ export function useSessionHistory({
   query,
 }: UseSessionHistoryOptions) {
   const { t } = useTranslation()
+  const chatState = useAtomValue(chatAtom)
+  const isTemporary = useAtomValue(temporaryChatAtom)
+  const revision = useAtomValue(sessionListRevisionAtom)
+  const localSessions = useAtomValue(localSessionsAtom)
+
   const observerRef = useRef<HTMLDivElement>(null)
   const offsetRef = useRef(0)
   const [sessions, setSessions] = useState<SessionSummary[]>(() =>
@@ -81,7 +94,55 @@ export function useSessionHistory({
 
   useEffect(() => {
     void loadSessions(true)
-  }, [loadSessions])
+  }, [revision, loadSessions])
+
+  const effectiveSessions = useMemo(() => {
+    const apiIds = new Set(sessions.map((s) => s.id))
+    const optimisticList: SessionSummary[] = []
+
+    if (
+      !isTemporary &&
+      chatState.activeSessionId &&
+      !chatState.activeSessionId.startsWith("temp-") &&
+      !chatState.activeSessionId.startsWith("temporary-") &&
+      chatState.messages.length > 0 &&
+      !apiIds.has(chatState.activeSessionId)
+    ) {
+      const firstUserMsg = chatState.messages.find((m) => m.role === "user")
+      const title = firstUserMsg?.content.slice(0, 40) || t("chat.newChat", "New Chat")
+      const preview = firstUserMsg?.content.slice(0, 80) || ""
+      optimisticList.push({
+        id: chatState.activeSessionId,
+        title,
+        preview,
+        message_count: chatState.messages.length,
+        type: "web",
+        channel: "pico",
+        created: new Date().toISOString(),
+        updated: new Date().toISOString(),
+      })
+      apiIds.add(chatState.activeSessionId)
+    }
+
+    for (const [id, meta] of Object.entries(localSessions)) {
+      if (!apiIds.has(id)) {
+        optimisticList.push({
+          id,
+          title: meta.title || t("chat.newChat", "New Chat"),
+          preview: meta.preview,
+          message_count: 1,
+          type: "web",
+          channel: "pico",
+          created: new Date(meta.updated).toISOString(),
+          updated: new Date(meta.updated).toISOString(),
+        })
+        apiIds.add(id)
+      }
+    }
+
+    if (optimisticList.length === 0) return sessions
+    return [...optimisticList, ...sessions]
+  }, [sessions, chatState.activeSessionId, chatState.messages, localSessions, isTemporary, t])
 
   useEffect(() => {
     if (!observerRef.current || !hasMore || isLoadingMore || loadError) return
@@ -108,6 +169,7 @@ export function useSessionHistory({
   const handleDeleteSession = useCallback(
     async (id: string) => {
       try {
+        deleteLocalSession(id)
         const deletedLoadedSession = sessions.some(
           (session) => session.id === id,
         )
@@ -154,7 +216,7 @@ export function useSessionHistory({
   )
 
   return {
-    sessions,
+    sessions: effectiveSessions,
     hasMore,
     loadError,
     loadErrorMessage: t("chat.historyLoadFailed"),
@@ -164,3 +226,4 @@ export function useSessionHistory({
     handleClearAllSessions,
   }
 }
+

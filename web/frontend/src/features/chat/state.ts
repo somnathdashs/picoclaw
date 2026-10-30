@@ -17,7 +17,11 @@ export function writeStoredSessionId(sessionId: string) {
     !sessionId.startsWith("temp-") &&
     !sessionId.startsWith("temporary-")
   ) {
-    globalThis.localStorage?.setItem(LAST_SESSION_STORAGE_KEY, sessionId)
+    try {
+      globalThis.localStorage?.setItem(LAST_SESSION_STORAGE_KEY, sessionId)
+    } catch {
+      // QuotaExceededError — storage full, session ID not persisted
+    }
     return
   }
 

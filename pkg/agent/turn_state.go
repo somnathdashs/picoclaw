@@ -704,7 +704,23 @@ func (ts *turnState) restoreSession(agent *AgentInstance) error {
 	ts.mu.RLock()
 	history := append([]providers.Message(nil), ts.restorePointHistory...)
 	summary := ts.restorePointSummary
+	userMsg := ts.userMessage
+	media := append([]string(nil), ts.media...)
 	ts.mu.RUnlock()
+
+	// If the session was empty before this turn, preserve the initiating user message
+	// so the newly created session persists instead of being wiped out and returning 404.
+	if len(history) == 0 && (userMsg != "" || len(media) > 0) {
+		history = append(history, providers.Message{
+			Role:    "user",
+			Content: userMsg,
+			Media:   media,
+		})
+		history = append(history, providers.Message{
+			Role:    "assistant",
+			Content: "Task stopped. Current task was canceled.",
+		})
+	}
 
 	agent.Sessions.SetHistory(ts.sessionKey, history)
 	agent.Sessions.SetSummary(ts.sessionKey, summary)

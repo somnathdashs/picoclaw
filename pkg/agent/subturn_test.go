@@ -588,6 +588,46 @@ func TestHardAbortSessionRollback(t *testing.T) {
 	}
 }
 
+// TestHardAbortFirstMessageSession verifies that HardAbort on the first message
+// of a brand new session retains the user prompt so the session does not disappear.
+func TestHardAbortFirstMessageSession(t *testing.T) {
+	al, _, _, provider, cleanup := newTestAgentLoop(t)
+	_ = provider
+	defer cleanup()
+
+	sess := &ephemeralSessionStore{
+		history: []providers.Message{},
+	}
+
+	rootTS := &turnState{
+		ctx:                  context.Background(),
+		turnID:               "test-first-msg",
+		depth:                0,
+		session:              sess,
+		initialHistoryLength: 0,
+		pendingResults:       make(chan *tools.ToolResult, 16),
+		concurrencySem:       make(chan struct{}, 5),
+	}
+
+	al.activeTurnStates.Store("test-first-msg", rootTS)
+
+	sess.AddMessage("", "user", "first message prompt")
+	sess.AddMessage("", "assistant", "partial output")
+
+	err := al.HardAbort("test-first-msg")
+	if err != nil {
+		t.Fatalf("HardAbort failed: %v", err)
+	}
+
+	finalHistory := sess.GetHistory("")
+	if len(finalHistory) != 1 {
+		t.Fatalf("expected 1 message preserved for first-message session, got %d", len(finalHistory))
+	}
+	if finalHistory[0].Content != "first message prompt" {
+		t.Errorf("expected first user prompt preserved, got %q", finalHistory[0].Content)
+	}
+}
+
 // TestNestedSubTurnHierarchy verifies that nested SubTurns maintain correct
 // parent-child relationships and depth tracking when recursively calling runAgentLoop.
 func TestNestedSubTurnHierarchy(t *testing.T) {

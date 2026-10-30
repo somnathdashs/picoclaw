@@ -7,13 +7,12 @@ import {
 import { normalizeUnixTimestamp } from "@/features/chat/state"
 import {
   type ChatAttachment,
+  type ChatMessage,
   type ContextUsage,
   updateChatStore,
 } from "@/store/chat"
-import {
-  saveSessionBranches,
-  syncActiveBranches,
-} from "@/features/chat/branches"
+
+import { syncActiveBranches } from "@/features/chat/branches"
 
 export interface PicoMessage {
   type: string
@@ -97,14 +96,11 @@ function parseModelName(payload: Record<string, unknown>): string | undefined {
   return modelName || undefined
 }
 
-export function handlePicoMessage(
+export function reducePicoMessage(
+  prevMessages: ChatMessage[],
+  prevIsTyping: boolean,
   message: PicoMessage,
-  expectedSessionId: string,
-) {
-  if (message.session_id && message.session_id !== expectedSessionId) {
-    return
-  }
-
+): { messages: ChatMessage[]; isTyping: boolean; contextUsage?: ContextUsage } {
   const payload = message.payload || {}
 
   switch (message.type) {
@@ -123,34 +119,26 @@ export function handlePicoMessage(
           ? normalizeUnixTimestamp(Number(message.timestamp))
           : Date.now()
 
-      updateChatStore((prev) => {
-        const nextMessages = syncActiveBranches([
-          ...prev.messages,
-          {
-            id: messageId,
-            role: "assistant",
-            content,
-            kind,
-            ...(modelName ? { modelName } : {}),
-            ...(toolCalls ? { toolCalls } : {}),
-            attachments,
-            timestamp,
-          },
-        ])
-        if (expectedSessionId) {
-          saveSessionBranches(expectedSessionId, nextMessages)
-        }
-        return {
-          messages: nextMessages,
-          isTyping:
-            !isPlaceholder &&
-            (kind === "normal" || message.type === "media.create")
-              ? false
-              : prev.isTyping,
-          ...(contextUsage ? { contextUsage } : {}),
-        }
-      })
-      break
+      const nextMessages = syncActiveBranches([
+        ...prevMessages,
+        {
+          id: messageId,
+          role: "assistant",
+          content,
+          kind,
+          ...(modelName ? { modelName } : {}),
+          ...(toolCalls ? { toolCalls } : {}),
+          attachments,
+          timestamp,
+        },
+      ])
+
+      const isTyping =
+        !isPlaceholder && (kind === "normal" || message.type === "media.create")
+          ? false
+          : prevIsTyping
+
+      return { messages: nextMessages, isTyping, contextUsage }
     }
 
     case "message.update": {
@@ -164,103 +152,108 @@ export function handlePicoMessage(
           ? normalizeUnixTimestamp(Number(message.timestamp))
           : Date.now()
       if (!messageId) {
-        break
+        return { messages: prevMessages, isTyping: prevIsTyping }
       }
 
-      updateChatStore((prev) => {
-        let found = false
-        const messages = prev.messages.map((msg) => {
-          if (msg.id !== messageId) {
-            return msg
-          }
-          found = true
-          const { content, kind, toolCalls } =
-            parseAssistantMessageUpdateState(payload, msg)
-          return {
-            ...msg,
-            id: messageId,
-            content,
-            kind,
-            toolCalls,
-            ...(modelName ? { modelName } : {}),
-            ...(attachments ? { attachments } : {}),
-          }
-        })
-        const updated = found
-          ? messages
-          : (() => {
-              const { content, kind, toolCalls } =
-                parseAssistantMessageUpdateState(payload)
-              return [
-                ...messages,
-                {
-                  id: messageId,
-                  role: "assistant" as const,
-                  content,
-                  kind,
-                  toolCalls,
-                  ...(modelName ? { modelName } : {}),
-                  ...(attachments ? { attachments } : {}),
-                  timestamp,
-                },
-              ]
-            })()
-
-        const nextMessages = syncActiveBranches(updated)
-        if (expectedSessionId) {
-          saveSessionBranches(expectedSessionId, nextMessages)
+      let found = false
+      const messages = prevMessages.map((msg) => {
+        if (msg.id !== messageId) {
+          return msg
         }
+        found = true
+        const { content, kind, toolCalls } =
+          parseAssistantMessageUpdateState(payload, msg)
         return {
-          messages: nextMessages,
-          ...(contextUsage ? { contextUsage } : {}),
+          ...msg,
+          id: messageId,
+          content,
+          kind,
+          toolCalls,
+          ...(modelName ? { modelName } : {}),
+          ...(attachments ? { attachments } : {}),
         }
       })
-      break
+      const updated = found
+        ? messages
+        : (() => {
+            const { content, kind, toolCalls } =
+              parseAssistantMessageUpdateState(payload)
+            return [
+              ...messages,
+              {
+                id: messageId,
+                role: "assistant" as const,
+                content,
+                kind,
+                toolCalls,
+                ...(modelName ? { modelName } : {}),
+                ...(attachments ? { attachments } : {}),
+                timestamp,
+              },
+            ]
+          })()
+
+      const nextMessages = syncActiveBranches(updated)
+      return { messages: nextMessages, isTyping: prevIsTyping, contextUsage }
     }
 
     case "message.delete": {
       const messageId = payload.message_id as string
       if (!messageId) {
-        break
+        return { messages: prevMessages, isTyping: prevIsTyping }
       }
-
-      updateChatStore((prev) => ({
-        messages: prev.messages.filter((msg) => msg.id !== messageId),
-      }))
-      break
+      return {
+        messages: prevMessages.filter((msg) => msg.id !== messageId),
+        isTyping: prevIsTyping,
+      }
     }
 
     case "typing.start":
-      updateChatStore({ isTyping: true })
-      break
+      return { messages: prevMessages, isTyping: true }
 
     case "typing.stop":
-      updateChatStore({ isTyping: false })
-      break
+      return { messages: prevMessages, isTyping: false }
 
     case "error": {
       const requestId =
         typeof payload.request_id === "string" ? payload.request_id : ""
-      const errorMessage =
-        typeof payload.message === "string" ? payload.message : ""
-
-      console.error("Pico error:", payload)
-      if (errorMessage) {
-        toast.error(errorMessage)
-      }
-      updateChatStore((prev) => ({
+      return {
         messages: requestId
-          ? prev.messages.filter((msg) => msg.id !== requestId)
-          : prev.messages,
+          ? prevMessages.filter((msg) => msg.id !== requestId)
+          : prevMessages,
         isTyping: false,
-      }))
-      break
+      }
     }
 
-    case "pong":
-      break
-
     default:
-      console.log("Unknown pico message type:", message.type)
+      return { messages: prevMessages, isTyping: prevIsTyping }
   }
 }
+
+export function handlePicoMessage(
+  message: PicoMessage,
+  expectedSessionId: string,
+) {
+  if (message.session_id && message.session_id !== expectedSessionId) {
+    return
+  }
+
+  const payload = message.payload || {}
+  if (
+    message.type === "error" &&
+    typeof payload.message === "string" &&
+    payload.message
+  ) {
+    toast.error(payload.message)
+  }
+
+  updateChatStore((prev) => {
+    const result = reducePicoMessage(prev.messages, prev.isTyping, message)
+    return {
+      messages: result.messages,
+      isTyping: result.isTyping,
+      ...(result.contextUsage ? { contextUsage: result.contextUsage } : {}),
+    }
+  })
+}
+

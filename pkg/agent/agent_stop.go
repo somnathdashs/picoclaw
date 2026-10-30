@@ -7,6 +7,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/commands"
+	"github.com/sipeed/picoclaw/pkg/providers"
 )
 
 func (al *AgentLoop) tryHandleStopCommand(
@@ -26,8 +27,9 @@ func (al *AgentLoop) tryHandleStopCommand(
 	// placeholder but didn't stop it, that placeholder belongs to the other
 	// message's worker which hasn't started yet — arm a pending stop so the
 	// worker will bail when it checks before running.
+	ts := al.getActiveTurnState(sessionKey)
 	if err == nil && !result.Stopped {
-		if ts := al.getActiveTurnState(sessionKey); ts != nil {
+		if ts != nil {
 			snap := ts.snapshot()
 			if strings.HasPrefix(snap.TurnID, pendingTurnPrefix) {
 				al.markPendingStop(sessionKey)
@@ -46,6 +48,34 @@ func (al *AgentLoop) tryHandleStopCommand(
 	}
 	al.resetMessageToolRound(sessionKey)
 	al.PublishResponseIfNeeded(ctx, msg.Channel, msg.ChatID, sessionKey, reply)
+	if agent := al.agentForSession(sessionKey); agent != nil && agent.Sessions != nil && reply != "" {
+		history := agent.Sessions.GetHistory(sessionKey)
+		if len(history) == 0 && ts != nil {
+			ts.mu.RLock()
+			uMsg := ts.userMessage
+			uMedia := append([]string(nil), ts.media...)
+			ts.mu.RUnlock()
+			if strings.TrimSpace(uMsg) != "" || len(uMedia) > 0 {
+				if len(uMedia) > 0 {
+					agent.Sessions.AddFullMessage(sessionKey, providers.Message{
+						Role:    "user",
+						Content: uMsg,
+						Media:   uMedia,
+					})
+				} else {
+					agent.Sessions.AddMessage(sessionKey, "user", uMsg)
+				}
+				history = agent.Sessions.GetHistory(sessionKey)
+			}
+		}
+		hasStop := len(history) > 0 && history[len(history)-1].Role == "assistant" &&
+			(strings.Contains(history[len(history)-1].Content, "Task stopped") ||
+				strings.Contains(history[len(history)-1].Content, "canceled"))
+		if !hasStop {
+			agent.Sessions.AddMessage(sessionKey, "assistant", reply)
+		}
+		_ = agent.Sessions.Save(sessionKey)
+	}
 	return true
 }
 
