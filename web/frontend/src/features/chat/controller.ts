@@ -43,6 +43,10 @@ export function clearSessionBranches(sessionId: string) {
   sessionMessagesMap.delete(sessionId)
 }
 
+export function clearAllSessionBranches() {
+  sessionMessagesMap.clear()
+}
+
 let msgIdCounter = 0
 let activeSessionIdRef = getChatState().activeSessionId
 let initialized = false

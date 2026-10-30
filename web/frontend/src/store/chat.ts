@@ -154,6 +154,14 @@ export function deleteLocalSession(id: string) {
   bumpSessionListRevision()
 }
 
+export function clearAllLocalSessions(type?: string) {
+  if (!type || type === "all" || type === "web") {
+    clearStoredSessionId()
+    store.set(localSessionsAtom, {})
+  }
+  bumpSessionListRevision()
+}
+
 export function getChatState() {
   return store.get(chatAtom)
 }

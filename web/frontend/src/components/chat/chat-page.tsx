@@ -333,6 +333,47 @@ function groupChatMessages(
   return result
 }
 
+function isLastAssistantMessageInTurn(
+  items: GroupedChatItem[],
+  index: number,
+): boolean {
+  for (let j = index + 1; j < items.length; j++) {
+    const next = items[j]
+    if (next.type === "message") {
+      if (next.message.role === "user") {
+        return true
+      }
+      if (next.message.role === "assistant") {
+        return false
+      }
+    }
+  }
+  return true
+}
+
+function getTurnAssistantContent(
+  items: GroupedChatItem[],
+  index: number,
+): string {
+  const currentItem = items[index]
+  if (currentItem?.type !== "message" || currentItem.message.role !== "assistant") {
+    return ""
+  }
+  const turnUserId = currentItem.turnUserMessage?.id
+  const contents: string[] = []
+  for (const it of items) {
+    if (it.type === "message" && it.message.role === "assistant") {
+      const match = turnUserId
+        ? it.turnUserMessage?.id === turnUserId
+        : it.turnUserMessage === currentItem.turnUserMessage
+      if (match && it.message.content) {
+        contents.push(it.message.content)
+      }
+    }
+  }
+  return contents.length > 0 ? contents.join("\n\n") : currentItem.message.content
+}
+
 export function ChatPage() {
   const { t } = useTranslation()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -975,8 +1016,26 @@ export function ChatPage() {
                   )),
             )
 
+            const isFollowUpAssistant =
+              prevItem?.type === "message" &&
+              prevItem.message.role === "assistant" &&
+              (item.turnUserMessage?.id
+                ? prevItem.turnUserMessage?.id === item.turnUserMessage?.id
+                : prevItem.turnUserMessage === item.turnUserMessage)
+            const isLastAssistantInTurn = isLastAssistantMessageInTurn(
+              groupedChatItems,
+              index,
+            )
+            const turnAssistantContent = getTurnAssistantContent(
+              groupedChatItems,
+              index,
+            )
+
             return (
-              <div key={item.id} className="w-full">
+              <div
+                key={item.id}
+                className={`w-full ${isFollowUpAssistant ? "-mt-5" : ""}`}
+              >
                 {message.role === "assistant" ? (
                   <AssistantMessage
                     id={message.id}
@@ -987,7 +1046,9 @@ export function ChatPage() {
                     toolCalls={undefined}
                     timestamp={message.timestamp}
                     isStreaming={item.isStreaming}
-                    hideHeader={hasPrecedingWork}
+                    hideHeader={hasPrecedingWork || isFollowUpAssistant}
+                    showBottomActions={isLastAssistantInTurn}
+                    copyContent={turnAssistantContent}
                     totalBranches={
                       !isTurnEditBranch
                         ? (item.turnUserMessage?.branches?.length ?? 1)

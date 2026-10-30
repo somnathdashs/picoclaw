@@ -21,8 +21,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { showSaveSuccessOrRestartToast } from "@/lib/restart-required"
-import { refreshGatewayState } from "@/store/gateway"
+import { restartGateway } from "@/api/gateway"
+import { refreshGatewayState, updateGatewayStore } from "@/store/gateway"
 
 export function RawConfigPage() {
   const { t } = useTranslation()
@@ -59,14 +59,16 @@ export function RawConfigPage() {
       } catch {
         queryClient.invalidateQueries({ queryKey: ["config"] })
       }
-      void refreshGatewayState({ force: true }).then((gateway) => {
-        showSaveSuccessOrRestartToast(
-          t,
-          t("pages.config.save_success"),
-          t("navigation.config"),
-          gateway?.restartRequired === true,
-        )
-      })
+      void (async () => {
+        try {
+          await restartGateway()
+          updateGatewayStore({ status: "restarting", restartRequired: false })
+          toast.success(t("pages.config.save_and_restart_success", "Configuration saved and gateway restarted."))
+        } catch {
+          toast.success(t("pages.config.save_success"))
+        }
+        await refreshGatewayState({ force: true })
+      })()
     },
     onError: () => {
       toast.error(t("pages.config.save_error"))
@@ -208,9 +210,11 @@ export function RawConfigPage() {
                     </AlertDialogFooter>
                   </AlertDialogContent>
                 </AlertDialog>
-                <Button onClick={handleSave} disabled={mutation.isPending}>
-                  {mutation.isPending ? t("common.saving") : t("common.save")}
-                </Button>
+                {isDirty && (
+                  <Button onClick={handleSave} disabled={mutation.isPending}>
+                    {mutation.isPending ? t("common.saving") : t("common.save")}
+                  </Button>
+                )}
               </div>
             </div>
           )}

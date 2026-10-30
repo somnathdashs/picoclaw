@@ -935,6 +935,8 @@ interface AssistantMessageProps {
   onRegenerate?: () => void
   speakingMessageId?: string | null
   onReadAloud?: (text: string) => void
+  showBottomActions?: boolean
+  copyContent?: string
 }
 
 export function AssistantMessage({
@@ -954,6 +956,8 @@ export function AssistantMessage({
   onRegenerate,
   speakingMessageId,
   onReadAloud,
+  showBottomActions = true,
+  copyContent,
 }: AssistantMessageProps) {
   const { t } = useTranslation()
   const { copy, isCopied } = useCopyToClipboard()
@@ -1053,7 +1057,7 @@ export function AssistantMessage({
           </div>
 
           {/* Bottom Action Bar: Copy, Read Aloud, Regenerate, Branch Switcher */}
-          {!isStreaming && (
+          {!isStreaming && showBottomActions && (
             <div className="flex items-center justify-between gap-2 px-1 text-xs text-muted-foreground flex-wrap">
               <div className="flex items-center gap-1 sm:gap-1.5">
                 <Button
@@ -1061,7 +1065,7 @@ export function AssistantMessage({
                   variant="ghost"
                   size="icon"
                   className="size-7 sm:size-7.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors"
-                  onClick={() => void copy(content)}
+                  onClick={() => void copy(copyContent ?? content)}
                   aria-label={copyMessageLabel}
                   title={copyMessageLabel}
                 >
@@ -1082,7 +1086,7 @@ export function AssistantMessage({
                       ? "bg-violet-500/15 text-violet-600 dark:text-violet-400 hover:bg-violet-500/25 ring-1 ring-violet-500/30"
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/70",
                   )}
-                  onClick={() => onReadAloud?.(content)}
+                  onClick={() => onReadAloud?.(copyContent ?? content)}
                   aria-label={isSpeakingThis ? "Stop speaking" : "Read aloud"}
                   title={isSpeakingThis ? "Stop speaking" : "Read aloud"}
                 >

@@ -9,8 +9,10 @@ import {
   getCachedSessions,
   getSessions,
 } from "@/api/sessions"
+import { clearAllSessionBranches, clearSessionBranches } from "@/features/chat/controller"
 import {
   chatAtom,
+  clearAllLocalSessions,
   deleteLocalSession,
   localSessionsAtom,
   sessionListRevisionAtom,
@@ -170,6 +172,7 @@ export function useSessionHistory({
     async (id: string) => {
       try {
         deleteLocalSession(id)
+        clearSessionBranches(id)
         const deletedLoadedSession = sessions.some(
           (session) => session.id === id,
         )
@@ -193,6 +196,8 @@ export function useSessionHistory({
       try {
         const effectiveType = typeToClear ?? sessionType
         await clearSessions(effectiveType)
+        clearAllSessionBranches()
+        clearAllLocalSessions(effectiveType)
         if (!effectiveType || effectiveType === "all") {
           setSessions([])
           onDeletedActiveSession()
@@ -204,6 +209,9 @@ export function useSessionHistory({
                 : s.type !== effectiveType && s.channel !== effectiveType,
             ),
           )
+          if (effectiveType === "web") {
+            onDeletedActiveSession()
+          }
         }
         offsetRef.current = 0
         void loadSessions(true)

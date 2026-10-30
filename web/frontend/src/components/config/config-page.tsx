@@ -54,8 +54,8 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { showSaveSuccessOrRestartToast } from "@/lib/restart-required"
-import { refreshGatewayState } from "@/store/gateway"
+import { restartGateway } from "@/api/gateway"
+import { refreshGatewayState, updateGatewayStore } from "@/store/gateway"
 
 function buildStringMapMergePatch(
   next: Record<string, string>,
@@ -705,13 +705,23 @@ export function ConfigPage() {
         queryClient.setQueryData(["system", "autostart"], status)
       }
 
-      const gateway = await refreshGatewayState({ force: true })
-      showSaveSuccessOrRestartToast(
-        t,
-        t("pages.config.save_success"),
-        t("navigation.config"),
-        gateway?.restartRequired === true,
-      )
+      try {
+        await restartGateway()
+        updateGatewayStore({
+          status: "restarting",
+          restartRequired: false,
+        })
+        toast.success(
+          t(
+            "pages.config.save_and_restart_success",
+            "Configuration saved and gateway restarted.",
+          ),
+        )
+      } catch (restartErr) {
+        toast.success(t("pages.config.save_success"))
+        console.warn("Gateway restart after save:", restartErr)
+      }
+      await refreshGatewayState({ force: true })
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t("pages.config.save_error"),
@@ -848,7 +858,9 @@ export function ConfigPage() {
                 onAutoStartChange={setAutoStartEnabled}
               />
 
-              {!isDirty && actionButtons}
+              {!isDirty && (
+                <div className="flex justify-end">{factoryResetButton}</div>
+              )}
             </div>
           )}
         </div>
