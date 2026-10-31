@@ -26,6 +26,8 @@ import {
   MCPSection,
   RuntimeSection,
 } from "@/components/config/config-sections"
+import { VoiceAgentSection } from "@/components/config/voice-agent-section"
+
 import {
   type CoreConfigForm,
   EMPTY_FORM,
@@ -821,6 +823,8 @@ export function ConfigPage() {
                 onFieldChange={updateLauncherField}
                 disabled={saving || isLauncherLoading}
               />
+
+              <VoiceAgentSection />
 
               <AgentDefaultsSection
                 form={form}

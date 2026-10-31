@@ -254,6 +254,7 @@ function Sidebar({
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
         <SheetContent
+          onOpenAutoFocus={(e) => e.preventDefault()}
           dir={dir}
           data-sidebar="sidebar"
           data-slot="sidebar"

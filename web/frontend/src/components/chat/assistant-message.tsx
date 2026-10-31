@@ -1076,26 +1076,28 @@ export function AssistantMessage({
                   )}
                 </Button>
 
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className={cn(
-                    "size-7 sm:size-7.5 rounded-lg transition-colors",
-                    isSpeakingThis
-                      ? "bg-violet-500/15 text-violet-600 dark:text-violet-400 hover:bg-violet-500/25 ring-1 ring-violet-500/30"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/70",
-                  )}
-                  onClick={() => onReadAloud?.(copyContent ?? content)}
-                  aria-label={isSpeakingThis ? "Stop speaking" : "Read aloud"}
-                  title={isSpeakingThis ? "Stop speaking" : "Read aloud"}
-                >
-                  {isSpeakingThis ? (
-                    <IconVolumeOff className="size-3.5 sm:size-4 animate-pulse text-violet-500" />
-                  ) : (
-                    <IconVolume className="size-3.5 sm:size-4" />
-                  )}
-                </Button>
+                {Boolean(onReadAloud) && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "size-7 sm:size-7.5 rounded-lg transition-colors",
+                      isSpeakingThis
+                        ? "bg-violet-500/15 text-violet-600 dark:text-violet-400 hover:bg-violet-500/25 ring-1 ring-violet-500/30"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/70",
+                    )}
+                    onClick={() => onReadAloud?.(copyContent ?? content)}
+                    aria-label={isSpeakingThis ? "Stop speaking" : "Read aloud"}
+                    title={isSpeakingThis ? "Stop speaking" : "Read aloud"}
+                  >
+                    {isSpeakingThis ? (
+                      <IconVolumeOff className="size-3.5 sm:size-4 animate-pulse text-violet-500" />
+                    ) : (
+                      <IconVolume className="size-3.5 sm:size-4" />
+                    )}
+                  </Button>
+                )}
 
                 {onRegenerate && (
                   <Button

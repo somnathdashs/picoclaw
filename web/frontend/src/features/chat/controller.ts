@@ -302,6 +302,30 @@ interface SendChatMessageInput {
   attachments?: ChatAttachment[]
 }
 
+function attachFileTagsToContent(
+  content: string,
+  attachments: readonly ChatAttachment[] = [],
+): string {
+  const normalized = content.trim()
+  const fileAttachments = attachments.filter(
+    (att) => att.type === "file" && (att.filename || att.url),
+  )
+  if (fileAttachments.length === 0) {
+    return normalized
+  }
+
+  const fileTags = fileAttachments
+    .map((f) => {
+      const filePath = f.url || f.filename
+      return f.filename && f.url && f.url !== f.filename
+        ? `${f.filename} [file:${filePath}]`
+        : `[file:${filePath}]`
+    })
+    .join(" ")
+
+  return normalized ? `${normalized}\n${fileTags}` : fileTags
+}
+
 export function sendChatMessage({
   content,
   displayContent,
@@ -321,11 +345,14 @@ export function sendChatMessage({
   }
 
   const normalizedContent = content.trim()
-  const normalizedAttachments = attachments
+  const imageAttachments = attachments
     .filter((attachment) => attachment.type === "image" && attachment.url)
     .map((attachment) => ({ ...attachment }))
+  const fileAttachments = attachments
+    .filter((attachment) => attachment.type === "file" && (attachment.filename || attachment.url))
+    .map((attachment) => ({ ...attachment }))
 
-  if (!normalizedContent && normalizedAttachments.length === 0) {
+  if (!normalizedContent && imageAttachments.length === 0 && fileAttachments.length === 0) {
     return false
   }
 
@@ -337,8 +364,7 @@ export function sendChatMessage({
     id,
     role: "user",
     content: userText,
-    attachments:
-      normalizedAttachments.length > 0 ? normalizedAttachments : undefined,
+    attachments: attachments.length > 0 ? attachments : undefined,
     timestamp: Date.now(),
   }
 
@@ -352,9 +378,11 @@ export function sendChatMessage({
   recordLocalSession(sessionId, userText)
 
   try {
+    const outgoingContent = attachFileTagsToContent(normalizedContent, fileAttachments)
+
     const payload: Record<string, unknown> = {
-      content: normalizedContent,
-      media: normalizedAttachments.map((attachment) => attachment.url),
+      content: outgoingContent,
+      media: imageAttachments.map((attachment) => attachment.url),
       branch_history: branchHistory,
     }
 
@@ -531,8 +559,12 @@ export function regenerateAssistantTurn(assistantMessageId: string): boolean {
   sessionTypingMap.set(state.activeSessionId, true)
 
   try {
+    const outgoingContent = attachFileTagsToContent(
+      newMsg.content,
+      newMsg.attachments || [],
+    )
     const payload: Record<string, unknown> = {
-      content: newMsg.content,
+      content: outgoingContent,
       media: (newMsg.attachments || [])
         .filter((att) => att.type === "image" && att.url)
         .map((att) => att.url),
@@ -646,8 +678,12 @@ export function editUserTurn(
   }
 
   try {
+    const outgoingContent = attachFileTagsToContent(
+      text,
+      newMsg.attachments || [],
+    )
     const payload: Record<string, unknown> = {
-      content: text,
+      content: outgoingContent,
       media: (newMsg.attachments || [])
         .filter((att) => att.type === "image" && att.url)
         .map((att) => att.url),

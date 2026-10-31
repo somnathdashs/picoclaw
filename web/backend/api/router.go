@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/sipeed/picoclaw/pkg/media"
 	"github.com/sipeed/picoclaw/web/backend/launcherconfig"
 )
 
@@ -20,6 +21,7 @@ type Handler struct {
 	serverAllowLocalhostBypass bool
 	serverTrustedProxyCIDRs    []string
 	debug                      bool
+	mediaStore                 media.MediaStore
 	// Serializes model-related config writes. Other config endpoints still
 	// coordinate their own load-modify-save cycles.
 	configMu    sync.Mutex
@@ -42,7 +44,19 @@ func NewHandler(configPath string) *Handler {
 		oauthState:                 make(map[string]string),
 		weixinFlows:                make(map[string]*weixinFlow),
 		wecomFlows:                 make(map[string]*wecomFlow),
+		mediaStore:                 media.NewFileMediaStore(),
 	}
+}
+
+func (h *Handler) GetMediaStore() media.MediaStore {
+	if h.mediaStore == nil {
+		h.mediaStore = media.NewFileMediaStore()
+	}
+	return h.mediaStore
+}
+
+func (h *Handler) SetMediaStore(store media.MediaStore) {
+	h.mediaStore = store
 }
 
 // SetServerOptions stores current backend listen options for fallback behavior.
@@ -127,6 +141,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Model rules management (RULES.md)
 	h.registerRulesRoutes(mux)
+
+	// Workspace file management
+	h.registerWorkspaceRoutes(mux)
 }
 
 // Shutdown gracefully shuts down the handler, stopping the gateway if it was started by this handler.

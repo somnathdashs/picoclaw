@@ -61,6 +61,7 @@ import {
   getTransferredFiles,
   hasFileTransfer,
 } from "@/features/chat/image-input"
+import { uploadToWorkspace } from "@/api/workspace"
 import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { formatMessageTime, usePicoChat } from "@/hooks/use-pico-chat"
@@ -76,6 +77,7 @@ import {
   temporaryChatSaveMemoryAndFilesAtom,
   temporaryChatUseMemoryAtom,
 } from "@/store/chat"
+import { lastInputWasVoiceAtom } from "@/store/voice-agent"
 import type { GatewayState } from "@/store/gateway"
 
 function resolveChatInputDisabledReason({
@@ -378,6 +380,7 @@ export function ChatPage() {
   const { t } = useTranslation()
   const scrollRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const workspaceFileInputRef = useRef<HTMLInputElement>(null)
   const dragDepthRef = useRef(0)
   const [isAtBottom, setIsAtBottom] = useState(true)
   const [hasScrolled, setHasScrolled] = useState(false)
@@ -391,7 +394,9 @@ export function ChatPage() {
   )
   const [isConfirmingExitTemp, setIsConfirmingExitTemp] = useState(false)
   const [rulesOpen, setRulesOpen] = useState(false)
-  const { speakingMessageId, speak } = useSpeechSynthesis()
+  const { speakingMessageId, speak, ttsSettings } = useSpeechSynthesis()
+  const [lastInputWasVoice, setLastInputWasVoice] = useAtom(lastInputWasVoiceAtom)
+  const messageWasVoiceRef = useRef(false)
 
   const {
     messages,
@@ -462,6 +467,41 @@ export function ChatPage() {
 
     return false
   }, [connectionState, isTyping, messages, groupedChatItems])
+
+  const prevWorkingRef = useRef(false)
+  const lastSpokenMessageIdRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    const autoReadActive =
+      ttsSettings?.autoReadOnMic ?? ttsSettings?.autoRead ?? false
+    if (
+      prevWorkingRef.current &&
+      !isAgentWorking &&
+      autoReadActive &&
+      ttsSettings?.enabled
+    ) {
+      const lastMsg = messages[messages.length - 1]
+      if (
+        lastMsg &&
+        lastMsg.role === "assistant" &&
+        lastMsg.content.trim() &&
+        lastMsg.id !== lastSpokenMessageIdRef.current &&
+        messageWasVoiceRef.current
+      ) {
+        lastSpokenMessageIdRef.current = lastMsg.id
+        messageWasVoiceRef.current = false
+        speak(lastMsg.id, lastMsg.content)
+      }
+    }
+    prevWorkingRef.current = isAgentWorking
+  }, [
+    isAgentWorking,
+    messages,
+    speak,
+    ttsSettings?.autoReadOnMic,
+    ttsSettings?.autoRead,
+    ttsSettings?.enabled,
+  ])
 
   const { state: gwState } = useGateway()
   const isGatewayRunning = gwState === "running"
@@ -629,6 +669,7 @@ export function ChatPage() {
       return
     }
 
+    const wasVoice = lastInputWasVoice
     if (
       sendMessage({
         content: promptToSend,
@@ -636,6 +677,8 @@ export function ChatPage() {
         attachments,
       })
     ) {
+      messageWasVoiceRef.current = wasVoice
+      setLastInputWasVoice(false)
       setInput("")
       setAttachments([])
       scrollToBottom(true)
@@ -648,6 +691,11 @@ export function ChatPage() {
   const handleAddImages = () => {
     if (!canInput) return
     fileInputRef.current?.click()
+  }
+
+  const handleAddWorkspaceFile = () => {
+    if (!canInput) return
+    workspaceFileInputRef.current?.click()
   }
 
   const handleRemoveAttachment = (index: number) => {
@@ -667,6 +715,39 @@ export function ChatPage() {
     setAttachments((prev) => [...prev, ...nextAttachments])
   }
 
+  const appendWorkspaceFiles = async (files: readonly File[]) => {
+    if (!canInput || files.length === 0) {
+      return
+    }
+
+    for (const file of files) {
+      try {
+        const res = await uploadToWorkspace(file)
+        setAttachments((prev) => [
+          ...prev,
+          {
+            type: "file",
+            filename: res.filename,
+            url: res.path,
+            contentType: file.type,
+          },
+        ])
+        toast.success(
+          t("chat.fileUploaded", "Uploaded {{filename}} to workspace", {
+            filename: res.filename,
+          }),
+        )
+      } catch (err) {
+        toast.error(
+          t("chat.fileUploadFailed", "Failed to upload {{filename}}: {{error}}", {
+            filename: file.name,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        )
+      }
+    }
+  }
+
   const handleImageSelection = async (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
     event.target.value = ""
@@ -676,6 +757,19 @@ export function ChatPage() {
     }
 
     await appendImageFiles(files)
+  }
+
+  const handleWorkspaceFileSelection = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ""
+
+    if (files.length === 0) {
+      return
+    }
+
+    await appendWorkspaceFiles(files)
   }
 
   const resetDragState = () => {
@@ -691,7 +785,15 @@ export function ChatPage() {
       return
     }
 
-    await appendImageFiles(files)
+    const imageFiles = files.filter((f) => f.type.startsWith("image/"))
+    const nonImageFiles = files.filter((f) => !f.type.startsWith("image/"))
+
+    if (imageFiles.length > 0) {
+      await appendImageFiles(imageFiles)
+    }
+    if (nonImageFiles.length > 0) {
+      await appendWorkspaceFiles(nonImageFiles)
+    }
   }
 
   const handleComposerDragEnter = (event: DragEvent<HTMLDivElement>) => {
@@ -745,7 +847,15 @@ export function ChatPage() {
       return
     }
 
-    await appendImageFiles(files)
+    const imageFiles = files.filter((f) => f.type.startsWith("image/"))
+    const nonImageFiles = files.filter((f) => !f.type.startsWith("image/"))
+
+    if (imageFiles.length > 0) {
+      await appendImageFiles(imageFiles)
+    }
+    if (nonImageFiles.length > 0) {
+      await appendWorkspaceFiles(nonImageFiles)
+    }
   }
 
   const canSubmit =
@@ -1071,7 +1181,11 @@ export function ChatPage() {
                     }
                     onRegenerate={() => handleRegenerate(message.id)}
                     speakingMessageId={speakingMessageId}
-                    onReadAloud={(text) => speak(message.id, text)}
+                    onReadAloud={
+                      ttsSettings?.enabled
+                        ? (text) => speak(message.id, text)
+                        : undefined
+                    }
                   />
                 ) : (
                   <UserMessage
@@ -1113,12 +1227,21 @@ export function ChatPage() {
         onChange={handleImageSelection}
       />
 
+      <input
+        ref={workspaceFileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleWorkspaceFileSelection}
+      />
+
       <ChatComposer
         input={input}
         attachments={attachments}
         onInputChange={setInput}
         onAddImages={handleAddImages}
         onCaptureImage={(file) => void appendImageFiles([file])}
+        onUploadFile={handleAddWorkspaceFile}
         onPaste={handleComposerPaste}
         onDragEnter={handleComposerDragEnter}
         onDragLeave={handleComposerDragLeave}

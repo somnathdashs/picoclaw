@@ -16,6 +16,8 @@
     "show_more_channels": "More",
     "show_less_channels": "Less",
     "config": "Config",
+    "voice": "Voice",
+    "voiceAgent": "Voice Agent",
     "logs": "Logs",
     "more": "More",
     "chat_history": "Chat History",
@@ -46,7 +48,7 @@
   "chat": {
     "welcome": "How can I help you today?",
     "welcomeDesc": "Ask me about weather, settings, or any other tasks. I'm here to assist you.",
-    "placeholder": "Start a new message...",
+    "placeholder": "Ask PicoClaw anything. Use / for commands, # for skills",
     "disabledPlaceholder": {
       "gatewayUnknown": "Unable to chat: Gateway status is still being checked. Please wait, then refresh the page or restart Launcher if needed.",
       "gatewayStarting": "Unable to chat: Gateway is starting. Wait for startup to complete, then try again.",
@@ -116,6 +118,11 @@
     "invalidImage": "\"{{name}}\" is not a supported image file.",
     "imageTooLarge": "\"{{name}}\" exceeds the {{size}} limit.",
     "imageReadFailed": "Failed to read \"{{name}}\".",
+    "uploadFile": "Upload to workspace",
+    "uploadFileDesc": "Upload a file into agent workspace",
+    "fileUploaded": "Uploaded {{filename}} to workspace",
+    "fileUploadFailed": "Failed to upload {{filename}}: {{error}}",
+    "removeAttachment": "Remove attachment",
     "empty": {
       "noConfiguredModel": "No Model Configured",
       "noConfiguredModelDescription": "You need to configure at least one AI model with an API key before you can start chatting.",

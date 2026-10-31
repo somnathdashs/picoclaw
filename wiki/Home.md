@@ -23,3 +23,9 @@ Welcome to the PicoClaw user guide! PicoClaw is an ultra-lightweight personal AI
    - Native vs. Bridge connection modes
    - Pairing and linking with QR code
    - Viewing connection status and unlinking sessions
+5. [[Voice Agent]]
+   - Voice navigation item conveniently located in the Agent sidebar group
+   - Two-tab settings for Speech-to-Text (STT) and Text-to-Speech (TTS)
+   - Edge API cloud neural voices and offline System speech synthesis
+   - "Auto-read when user used mic" for natural voice replies
+   - Interactive voice preview and microphone test tools

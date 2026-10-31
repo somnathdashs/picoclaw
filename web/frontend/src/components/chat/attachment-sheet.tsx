@@ -1,7 +1,7 @@
 import {
   IconBrain,
   IconCamera,
-  IconChevronRight,
+  IconFileUpload,
   IconPhoto,
 } from "@tabler/icons-react"
 import { type ReactNode, useEffect, useState } from "react"
@@ -12,6 +12,12 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
 export const THINKING_LEVEL_OPTIONS = [
@@ -28,6 +34,7 @@ interface AttachmentPopupProps {
   onOpenChange: (open: boolean) => void
   onPickImage: () => void
   onCaptureImage: () => void
+  onUploadFile?: () => void
   thinkingLevel?: string
   onUpdateThinkingLevel?: (level: string) => Promise<void> | void
   children: ReactNode
@@ -55,6 +62,7 @@ export function AttachmentPopup({
   onOpenChange,
   onPickImage,
   onCaptureImage,
+  onUploadFile,
   thinkingLevel = "",
   onUpdateThinkingLevel,
   children,
@@ -97,6 +105,11 @@ export function AttachmentPopup({
     onPickImage()
   }
 
+  const handleUploadFile = () => {
+    onOpenChange(false)
+    onUploadFile?.()
+  }
+
   const currentOption = THINKING_LEVEL_OPTIONS[sliderIndex] ?? THINKING_LEVEL_OPTIONS[0]
 
   return (
@@ -114,45 +127,62 @@ export function AttachmentPopup({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-1.5 pt-0.5">
-          <button
-            type="button"
-            onClick={handleCapture}
-            className="group flex w-full items-center gap-3 rounded-xl border border-border/50 bg-muted/30 p-2.5 text-left transition hover:border-primary/50 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active:scale-[0.99]"
-          >
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
-              <IconCamera className="size-4" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-foreground">
+        <TooltipProvider delayDuration={100}>
+          <div className="flex items-center gap-2 pt-0.5">
+            <Tooltip delayDuration={100}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handleCapture}
+                  title={t("chat.captureImage", "Capture image")}
+                  aria-label={t("chat.captureImage", "Capture image")}
+                  className="group flex flex-1 items-center justify-center h-10 rounded-xl border border-border/50 bg-muted/30 text-primary transition hover:border-primary/50 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active:scale-95"
+                >
+                  <IconCamera className="size-5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" sideOffset={6} className="z-[100]">
                 {t("chat.captureImage", "Capture image")}
-              </div>
-              <div className="text-[11px] text-muted-foreground truncate">
-                {t("chat.captureImageDesc", "Take a photo using camera")}
-              </div>
-            </div>
-            <IconChevronRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-          </button>
+              </TooltipContent>
+            </Tooltip>
 
-          <button
-            type="button"
-            onClick={handlePick}
-            className="group flex w-full items-center gap-3 rounded-xl border border-border/50 bg-muted/30 p-2.5 text-left transition hover:border-primary/50 hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active:scale-[0.99]"
-          >
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
-              <IconPhoto className="size-4" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium text-foreground">
+            <Tooltip delayDuration={100}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handlePick}
+                  title={t("chat.pickImage", "Pick image")}
+                  aria-label={t("chat.pickImage", "Pick image")}
+                  className="group flex flex-1 items-center justify-center h-10 rounded-xl border border-border/50 bg-muted/30 text-primary transition hover:border-primary/50 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active:scale-95"
+                >
+                  <IconPhoto className="size-5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" sideOffset={6} className="z-[100]">
                 {t("chat.pickImage", "Pick image")}
-              </div>
-              <div className="text-[11px] text-muted-foreground truncate">
-                {t("chat.pickImageDesc", "Choose from gallery or files")}
-              </div>
-            </div>
-            <IconChevronRight className="size-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
-          </button>
-        </div>
+              </TooltipContent>
+            </Tooltip>
+
+            {onUploadFile && (
+              <Tooltip delayDuration={100}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleUploadFile}
+                    title={t("chat.uploadFile", "Pick a file")}
+                    aria-label={t("chat.uploadFile", "Pick a file")}
+                    className="group flex flex-1 items-center justify-center h-10 rounded-xl border border-border/50 bg-muted/30 text-primary transition hover:border-primary/50 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active:scale-95"
+                  >
+                    <IconFileUpload className="size-5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" sideOffset={6} className="z-[100]">
+                  {t("chat.uploadFile", "Pick a file")}
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        </TooltipProvider>
 
         {onUpdateThinkingLevel && (
           <>

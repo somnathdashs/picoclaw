@@ -22,6 +22,7 @@ import {
   IconLayoutDashboard,
   IconListDetails,
   IconMessageCircle,
+  IconMicrophone,
   IconSearch,
   IconSettings,
   IconSparkles,
@@ -430,7 +431,6 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   onClick={() => {
                     setOpen(true)
                     if (isMobile) setOpenMobile(true)
-                    setTimeout(() => searchInputRef.current?.focus(), 150)
                   }}
                   className="text-muted-foreground hover:bg-muted/60 hover:text-foreground size-9 justify-center p-0"
                 >
@@ -905,6 +905,25 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                         <IconTools className="size-4.5 shrink-0 p-0.5" />
                         <span className="opacity-90">
                           {t("navigation.tools", "Tools")}
+                        </span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={
+                        currentPath === "/settings" ||
+                        currentPath.startsWith("/settings/")
+                      }
+                      onClick={handleNavItemClick}
+                      tooltip={t("navigation.voice", "Voice")}
+                      className={`h-8.5 px-3 ${currentPath === "/settings" || currentPath.startsWith("/settings/") ? "bg-accent/80 text-foreground font-medium" : "text-muted-foreground hover:bg-muted/60"}`}
+                    >
+                      <Link to="/settings">
+                        <IconMicrophone className="size-4.5 shrink-0 p-0.5" />
+                        <span className="opacity-90">
+                          {t("navigation.voice", "Voice")}
                         </span>
                       </Link>
                     </SidebarMenuButton>

@@ -112,13 +112,14 @@ PicoClaw lets you define persistent custom rules and instructions that guide mod
 
 ---
 
-### 11. Image Attachments, Camera Capture & Thinking Slider
+### 11. Attachments, Workspace File Upload, Camera Capture & Thinking Slider
 
 The chat box features a versatile popup menu for adding media and managing model thinking directly from the composer:
 
 - **Plus Icon Button**: A modern `+` button in the composer bar rotates into a cancel `✕` icon when open.
 - **Animated Popup Above Chatbox**:
   - Pops up smoothly directly above the chat box with slide and fade animation.
+  - **Upload to workspace**: Directly upload any file into the agent's workspace directory. Uploaded files are automatically linked to the user's message using standard `[file:<filename>]` channel tags, making them immediately accessible to agent tools like reading, editing, and analysis.
   - **Capture image**: Opens a full live camera viewfinder directly in the app with snapshot preview, retake, photo confirmation, and camera switching.
   - **Pick image**: Quick access to browse and select images from your device library or files.
 - **Thinking Slider**:

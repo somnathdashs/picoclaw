@@ -1,5 +1,6 @@
 import {
   IconArrowUp,
+  IconFile,
   IconMicrophone,
   IconMicrophoneOff,
   IconPlayerStopFilled,
@@ -15,6 +16,7 @@ import {
   useRef,
   useState,
 } from "react"
+import { useSetAtom } from "jotai"
 import { useQuery } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
 import TextareaAutosize from "react-textarea-autosize"
@@ -38,6 +40,7 @@ import {
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition"
 import { cn } from "@/lib/utils"
 import type { ChatAttachment, ContextUsage } from "@/store/chat"
+import { lastInputWasVoiceAtom } from "@/store/voice-agent"
 
 export type ChatInputDisabledReason =
   | "gatewayUnknown"
@@ -57,6 +60,7 @@ interface ChatComposerProps {
   onInputChange: (value: string) => void
   onAddImages: () => void
   onCaptureImage?: (file: File) => void
+  onUploadFile?: () => void
   onPaste: (event: ReactClipboardEvent<HTMLTextAreaElement>) => void
   onDragEnter: (event: ReactDragEvent<HTMLDivElement>) => void
   onDragLeave: (event: ReactDragEvent<HTMLDivElement>) => void
@@ -130,6 +134,7 @@ export function ChatComposer({
   onInputChange,
   onAddImages,
   onCaptureImage,
+  onUploadFile,
   onPaste,
   onDragEnter,
   onDragLeave,
@@ -258,12 +263,27 @@ export function ChatComposer({
     inputDisabledReason === null
       ? null
       : t(`chat.disabledPlaceholder.${inputDisabledReason}`)
-  const placeholder = disabledMessage ?? t("chat.placeholder")
+  const placeholder =
+    disabledMessage ??
+    t(
+      "chat.placeholder",
+      "Ask PicoClaw anything. Use / for commands, # for skills",
+    )
 
-  const { isListening, isSupported, toggleListening } = useSpeechRecognition({
-    onTranscript: onInputChange,
-    currentValue: input,
-  })
+  const setLastInputWasVoice = useSetAtom(lastInputWasVoiceAtom)
+
+  const { isListening, isSupported, toggleListening, sttSettings } =
+    useSpeechRecognition({
+      onTranscript: (val) => {
+        setLastInputWasVoice(true)
+        onInputChange(val)
+      },
+      onAutoSend: () => {
+        setLastInputWasVoice(true)
+        onSend()
+      },
+      currentValue: input,
+    })
 
   const handleSelectCommand = (cmd: SlashCommand) => {
     if (!triggerInfo || triggerInfo.type !== "/") return
@@ -304,6 +324,7 @@ export function ChatComposer({
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setLastInputWasVoice(false)
     const val = e.target.value
     onInputChange(val)
     setCursorPos(e.target.selectionStart ?? val.length)
@@ -408,27 +429,53 @@ export function ChatComposer({
 
           {attachments.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2 px-1">
-              {attachments.map((attachment, index) => (
-                <div
-                  key={`${attachment.url}-${index}`}
-                  className="bg-background relative h-16 w-16 overflow-hidden rounded-xl border"
-                >
-                  <img
-                    src={attachment.url}
-                    alt={attachment.filename || t("chat.uploadedImage")}
-                    className="h-full w-full object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onRemoveAttachment(index)}
-                    className="bg-background/85 text-foreground absolute top-1 right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border shadow-xs transition hover:bg-white"
-                    aria-label={t("chat.removeImage")}
-                    title={t("chat.removeImage")}
+              {attachments.map((attachment, index) =>
+                attachment.type === "file" ? (
+                  <div
+                    key={`${attachment.filename || attachment.url}-${index}`}
+                    className="bg-background relative flex items-center gap-2 rounded-xl border border-border/70 px-2.5 py-1.5 shadow-2xs max-w-[220px]"
                   >
-                    <IconX className="h-3 w-3" />
-                  </button>
-                </div>
-              ))}
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400">
+                      <IconFile className="size-4" />
+                    </div>
+                    <div className="flex-1 min-w-0 pr-5">
+                      <div className="truncate text-xs font-medium text-foreground">
+                        {attachment.filename || "file"}
+                      </div>
+                     
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onRemoveAttachment(index)}
+                      className="bg-background/85 text-foreground absolute top-1.5 right-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full border shadow-xs transition hover:bg-white dark:hover:bg-zinc-800"
+                      aria-label={t("chat.removeAttachment", "Remove attachment")}
+                      title={t("chat.removeAttachment", "Remove attachment")}
+                    >
+                      <IconX className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    key={`${attachment.url}-${index}`}
+                    className="bg-background relative h-16 w-16 overflow-hidden rounded-xl border"
+                  >
+                    <img
+                      src={attachment.url}
+                      alt={attachment.filename || t("chat.uploadedImage")}
+                      className="h-full w-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => onRemoveAttachment(index)}
+                      className="bg-background/85 text-foreground absolute top-1 right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border shadow-xs transition hover:bg-white"
+                      aria-label={t("chat.removeImage")}
+                      title={t("chat.removeImage")}
+                    >
+                      <IconX className="h-3 w-3" />
+                    </button>
+                  </div>
+                ),
+              )}
             </div>
           )}
 
@@ -438,6 +485,7 @@ export function ChatComposer({
               onOpenChange={setIsAttachmentOpen}
               onPickImage={onAddImages}
               onCaptureImage={() => setIsCameraOpen(true)}
+              onUploadFile={onUploadFile}
               thinkingLevel={thinkingLevel}
               onUpdateThinkingLevel={onUpdateThinkingLevel}
             >
@@ -446,7 +494,7 @@ export function ChatComposer({
                 variant="ghost"
                 size="icon"
                 className={cn(
-                  "text-muted-foreground hover:text-foreground h-7 w-7 sm:h-8 sm:w-8 shrink-0 rounded-full mb-0.5 transition-all duration-200 active:scale-95",
+                  "text-muted-foreground hover:text-foreground h-8 w-8 shrink-0 rounded-full transition-all duration-200 active:scale-95",
                   isAttachmentOpen && "bg-muted text-foreground rotate-45",
                 )}
                 disabled={!canInput}
@@ -461,7 +509,7 @@ export function ChatComposer({
               <div
                 ref={backdropRef}
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-0 max-h-[160px] min-h-[32px] overflow-hidden px-1.5 py-1 font-sans text-sm leading-relaxed whitespace-pre-wrap break-words text-foreground select-none"
+                className="pointer-events-none absolute inset-0 max-h-[160px] min-h-[32px] overflow-hidden px-2 py-1.5 font-sans text-sm leading-5 whitespace-pre-wrap break-words text-foreground select-none"
               >
                 {renderHighlightedContent(input)}
               </div>
@@ -486,7 +534,7 @@ export function ChatComposer({
                 disabled={!canInput}
                 title={disabledMessage || undefined}
                 className={cn(
-                  "relative z-10 max-h-[160px] min-h-[32px] w-full resize-none border-0 bg-transparent px-1.5 py-1 font-sans text-sm leading-relaxed shadow-none transition-colors focus-visible:ring-0 focus-visible:outline-none dark:bg-transparent",
+                  "relative z-10 max-h-[160px] min-h-[32px] w-full resize-none border-0 bg-transparent px-2 py-1.5 font-sans text-sm leading-5 placeholder:text-muted-foreground placeholder:truncate shadow-none transition-colors focus-visible:ring-0 focus-visible:outline-none dark:bg-transparent",
                   input
                     ? "text-transparent caret-foreground selection:bg-primary/25 selection:text-transparent"
                     : "text-foreground",
@@ -497,7 +545,7 @@ export function ChatComposer({
               />
             </div>
 
-            <div className="flex items-center gap-1 shrink-0 mb-0.5">
+            <div className="flex items-center gap-1 shrink-0">
               {contextUsage && (
                 <ContextUsageRing
                   usage={contextUsage}
@@ -506,7 +554,7 @@ export function ChatComposer({
               )}
 
               {/* Listening Status Badge */}
-              {isListening && (
+              {sttSettings.enabled && isListening && (
                 <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-500/15 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-[11px] font-medium animate-pulse shadow-2xs">
                   <span className="relative flex size-1.5">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
@@ -516,55 +564,60 @@ export function ChatComposer({
                 </div>
               )}
 
-              {/* Mic on Right Side */}
-              <Button
-                type="button"
-                variant={isListening ? "default" : "ghost"}
-                size="icon"
-                className={cn(
-                  "h-7 w-7 sm:h-8 sm:w-8 rounded-full transition-all duration-300",
-                  isListening
-                    ? "bg-rose-500 text-white shadow-md shadow-rose-500/30 hover:bg-rose-600 ring-2 ring-rose-400/50"
-                    : "text-muted-foreground hover:text-foreground",
-                  !isSupported && "opacity-40",
-                )}
-                onClick={toggleListening}
-                disabled={!canInput}
-                aria-label={isListening ? "Stop listening" : "Transcribe speech"}
-                title={
-                  isListening
-                    ? "Listening... Speak into microphone. Click to stop."
-                    : isSupported
-                      ? "Transcribe speech with browser microphone"
-                      : "Speech recognition not supported in this browser"
-                }
-              >
-                {isListening ? (
-                  <IconMicrophone className="size-4 animate-pulse" />
-                ) : isSupported ? (
-                  <IconMicrophone className="size-4" />
-                ) : (
-                  <IconMicrophoneOff className="size-4" />
-                )}
-              </Button>
+              {/* Mic on Right Side (hidden if STT is disabled in Voice settings) */}
+              {sttSettings.enabled && (
+                <Button
+                  type="button"
+                  variant={isListening ? "default" : "ghost"}
+                  size="icon"
+                  className={cn(
+                    "size-8 rounded-full transition-all duration-300",
+                    isListening
+                      ? "bg-rose-500 text-white shadow-md shadow-rose-500/30 hover:bg-rose-600 ring-2 ring-rose-400/50"
+                      : "text-muted-foreground hover:text-foreground",
+                    !isSupported && "opacity-40",
+                  )}
+                  onClick={() => {
+                    setLastInputWasVoice(true)
+                    toggleListening()
+                  }}
+                  disabled={!canInput}
+                  aria-label={isListening ? "Stop listening" : "Transcribe speech"}
+                  title={
+                    isListening
+                      ? "Listening... Speak into microphone. Click to stop."
+                      : isSupported
+                        ? "Transcribe speech with browser microphone"
+                        : "Speech recognition not supported in this browser"
+                  }
+                >
+                  {isListening ? (
+                    <IconMicrophone className="size-4 animate-pulse" />
+                  ) : isSupported ? (
+                    <IconMicrophone className="size-4" />
+                  ) : (
+                    <IconMicrophoneOff className="size-4" />
+                  )}
+                </Button>
+              )}
 
               {isWorking && !hasInput ? (
                 <Button
                   type="button"
                   size="icon"
-                  className="size-7 sm:size-8 rounded-full bg-rose-600 text-white hover:bg-rose-700 active:scale-95 transition-all shadow-xs ring-1 ring-rose-400/50"
+                  className="size-8 rounded-full bg-rose-600 text-white hover:bg-rose-700 active:scale-95 transition-all shadow-xs ring-1 ring-rose-400/50"
                   onClick={onStop}
                   aria-label="Stop generating"
                   title="Stop generating"
                 >
-                  <IconPlayerStopFilled className="size-3.5 sm:size-4" />
+                  <IconPlayerStopFilled className="size-4" />
                 </Button>
               ) : canInput ? (
                 <span tabIndex={!canSend ? 0 : undefined}>
                   <Button
                     type="button"
                     size="icon"
-                    className="size-7 sm:size-8 rounded-full bg-primary text-primary-foreground transition-transform hover:bg-primary/90 active:scale-95 disabled:opacity-40"
+                    className="size-8 rounded-full bg-primary text-primary-foreground transition-transform hover:bg-primary/90 active:scale-95 disabled:opacity-40"
                     onClick={onSend}
                     disabled={!canSend}
                     aria-label={t("chat.sendMessage")}

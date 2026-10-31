@@ -4,6 +4,7 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconCopy,
+  IconFile,
   IconPencil,
 } from "@tabler/icons-react"
 import { useTranslation } from "react-i18next"
@@ -101,6 +102,9 @@ export function UserMessage({
   const imageAttachments = attachments.filter(
     (attachment) => attachment.type === "image",
   )
+  const fileAttachments = attachments.filter(
+    (attachment) => attachment.type === "file",
+  )
   const copyMessageLabel = isCopied
     ? t("chat.copiedLabel")
     : t("chat.copyMessage")
@@ -126,6 +130,29 @@ export function UserMessage({
 
   return (
     <div className="group flex w-full flex-col items-end gap-1.5">
+      {fileAttachments.length > 0 && (
+        <div className="flex max-w-[85%] sm:max-w-[70%] flex-wrap justify-end gap-2">
+          {fileAttachments.map((attachment, index) => (
+            <div
+              key={`${attachment.filename || attachment.url}-${index}`}
+              className="flex items-center gap-2.5 rounded-xl border border-border/70 bg-card/90 px-3 py-2 text-xs shadow-2xs"
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400">
+                <IconFile className="size-4" />
+              </div>
+              <div className="min-w-0 text-left">
+                <div className="truncate font-medium text-foreground max-w-[180px]">
+                  {attachment.filename || "file"}
+                </div>
+                <div className="text-[10px] text-muted-foreground">
+                  Workspace file
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {imageAttachments.length > 0 && (
         <div className="flex max-w-[85%] sm:max-w-[70%] flex-wrap justify-end gap-2">
           {imageAttachments.map((attachment, index) => (
