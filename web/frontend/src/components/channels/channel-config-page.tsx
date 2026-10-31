@@ -196,9 +196,8 @@ function isConfigured(
     case "wecom":
       return hasValue("bot_id")
     case "whatsapp":
-      return hasValue("bridge_url")
     case "whatsapp_native":
-      return asBool(config.use_native)
+      return config.use_native !== false || hasValue("bridge_url")
     case "pico":
       return hasValue("token")
     case "maixcam":
@@ -218,7 +217,10 @@ function isConfigured(
   }
 }
 
-function getRequiredFieldKeys(channelName: string): string[] {
+function getRequiredFieldKeys(
+  channelName: string,
+  config?: ChannelConfig,
+): string[] {
   switch (channelName) {
     case "telegram":
       return ["token"]
@@ -239,7 +241,8 @@ function getRequiredFieldKeys(channelName: string): string[] {
     case "wecom":
       return []
     case "whatsapp":
-      return ["bridge_url"]
+    case "whatsapp_native":
+      return config?.use_native === false ? ["bridge_url"] : []
     case "pico":
       return ["token"]
     case "maixcam":
@@ -416,13 +419,18 @@ export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
     return []
   }, [])
   const requiredKeys = useMemo(
-    () => getRequiredFieldKeys(channelName),
-    [channelName],
+    () => getRequiredFieldKeys(channelName, editConfig),
+    [channelName, editConfig],
   )
 
   const handleChange = useCallback((key: string, value: unknown) => {
     const normalizedKey = key.startsWith("_") ? key.slice(1) : key
-    setEditConfig((prev) => ({ ...prev, [key]: value }))
+    setEditConfig((prev) => {
+      if (key.includes(".")) {
+        return setConfigValueByPath(prev, key, value)
+      }
+      return { ...prev, [key]: value }
+    })
     setFieldErrors((prev) => {
       if (!(key in prev) && !(normalizedKey in prev)) {
         return prev

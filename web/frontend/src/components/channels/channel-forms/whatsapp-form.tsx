@@ -551,7 +551,10 @@ export function WhatsappForm({
             description="When enabled in group chats, the bot will only respond when explicitly mentioned or prefixed."
             checked={asBool(groupTriggerConfig.mention_only)}
             onCheckedChange={(checked) =>
-              onChange("group_trigger.mention_only", checked)
+              onChange("group_trigger", {
+                ...groupTriggerConfig,
+                mention_only: checked,
+              })
             }
           />
 
@@ -559,7 +562,9 @@ export function WhatsappForm({
             label={t("channels.fields.typing.label")}
             description={t("channels.fields.typing.description")}
             checked={asBool(typingConfig.enabled)}
-            onCheckedChange={(checked) => onChange("typing.enabled", checked)}
+            onCheckedChange={(checked) =>
+              onChange("typing", { ...typingConfig, enabled: checked })
+            }
           />
 
           <SwitchCardField
@@ -567,7 +572,10 @@ export function WhatsappForm({
             description={t("channels.fields.placeholder.description")}
             checked={placeholderEnabled}
             onCheckedChange={(checked) =>
-              onChange("placeholder.enabled", checked)
+              onChange("placeholder", {
+                ...placeholderConfig,
+                enabled: checked,
+              })
             }
           >
             {placeholderEnabled && (
@@ -575,7 +583,12 @@ export function WhatsappForm({
                 <Input
                   value={asString(placeholderConfig.text)}
                   placeholder={t("channels.fields.placeholder.placeholder")}
-                  onChange={(e) => onChange("placeholder.text", e.target.value)}
+                  onChange={(e) =>
+                    onChange("placeholder", {
+                      ...placeholderConfig,
+                      text: e.target.value,
+                    })
+                  }
                 />
               </div>
             )}
