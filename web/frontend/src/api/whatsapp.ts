@@ -11,6 +11,9 @@ export interface WhatsAppStatus {
   phone?: string
   push_name?: string
   gateway_running: boolean
+  qr_data_uri?: string
+  qr_code?: string
+  error?: string
 }
 
 export async function getWhatsAppStatus(): Promise<WhatsAppStatus> {
@@ -43,6 +46,19 @@ export async function startWhatsAppLinking(): Promise<{
   })
   if (!res.ok) {
     throw new Error(`Failed to start WhatsApp linking: ${res.statusText}`)
+  }
+  return res.json() as Promise<{ success: boolean; message: string }>
+}
+
+export async function cancelWhatsAppLinking(): Promise<{
+  success: boolean
+  message: string
+}> {
+  const res = await launcherFetch("/api/whatsapp/cancel-link", {
+    method: "POST",
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to cancel WhatsApp linking: ${res.statusText}`)
   }
   return res.json() as Promise<{ success: boolean; message: string }>
 }

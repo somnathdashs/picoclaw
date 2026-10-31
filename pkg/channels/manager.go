@@ -1048,6 +1048,9 @@ func (m *Manager) getChannelConfigAndEnabled(channelName string) (*config.Channe
 	switch settings := decoded.(type) {
 	case *config.WhatsAppSettings:
 		if channelType == config.ChannelWhatsApp {
+			if settings.UseNative {
+				return bc, true
+			}
 			return bc, settings.BridgeURL != ""
 		}
 		return bc, channelType == config.ChannelWhatsAppNative && settings.UseNative
@@ -1110,6 +1113,13 @@ func (m *Manager) initChannels(channels *config.ChannelsConfig) error {
 		typeName := bc.Type
 		if typeName == "" {
 			typeName = name
+		}
+		if typeName == config.ChannelWhatsApp || typeName == "" {
+			if decoded, err := bc.GetDecoded(); err == nil {
+				if ws, ok := decoded.(*config.WhatsAppSettings); ok && ws.UseNative {
+					typeName = config.ChannelWhatsAppNative
+				}
+			}
 		}
 		m.initChannel(typeName, name)
 	}

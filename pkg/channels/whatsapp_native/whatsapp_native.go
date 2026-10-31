@@ -179,6 +179,8 @@ func (c *WhatsAppNativeChannel) Start(ctx context.Context) error {
 		c.reconnectMu.Unlock()
 		go func() {
 			defer c.wg.Done()
+			qrFile := filepath.Join(c.storePath, "qr.txt")
+			defer os.Remove(qrFile)
 			for {
 				select {
 				case <-c.runCtx.Done():
@@ -189,12 +191,14 @@ func (c *WhatsAppNativeChannel) Start(ctx context.Context) error {
 					}
 					if evt.Event == "code" {
 						logger.InfoCF("whatsapp", "Scan this QR code with WhatsApp (Linked Devices):", nil)
+						_ = os.WriteFile(qrFile, []byte(evt.Code), 0o600)
 						qrterminal.GenerateWithConfig(evt.Code, qrterminal.Config{
 							Level:      qrterminal.L,
 							Writer:     os.Stdout,
 							HalfBlocks: true,
 						})
 					} else {
+						_ = os.Remove(qrFile)
 						logger.InfoCF("whatsapp", "WhatsApp login event", map[string]any{"event": evt.Event})
 					}
 				}
@@ -264,6 +268,7 @@ func (c *WhatsAppNativeChannel) Stop(ctx context.Context) error {
 	if container != nil {
 		_ = container.Close()
 	}
+	_ = os.Remove(filepath.Join(c.storePath, "qr.txt"))
 	c.SetRunning(false)
 	return nil
 }

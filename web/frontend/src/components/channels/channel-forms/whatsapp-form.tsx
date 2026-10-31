@@ -9,6 +9,7 @@ import {
   IconRefresh,
   IconTrash,
   IconUnlink,
+  IconX,
 } from "@tabler/icons-react"
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
@@ -17,6 +18,7 @@ import { toast } from "sonner"
 import type { ChannelConfig } from "@/api/channels"
 import {
   type WhatsAppStatus,
+  cancelWhatsAppLinking,
   getWhatsAppStatus,
   startWhatsAppLinking,
   unlinkWhatsApp,
@@ -88,6 +90,9 @@ export function WhatsappForm({
   const [unlinking, setUnlinking] = useState(false)
   const [showUnlinkDialog, setShowUnlinkDialog] = useState(false)
   const [linking, setLinking] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+
+  const isLinking = linking || Boolean(status?.qr_data_uri && !status?.linked)
 
   const typingConfig = asRecord(config.typing)
   const placeholderConfig = asRecord(config.placeholder)
@@ -111,12 +116,19 @@ export function WhatsappForm({
   }, [])
 
   useEffect(() => {
-    if (!linking) return
+    if (status?.linked && linking) {
+      setLinking(false)
+      toast.success("WhatsApp successfully linked!")
+    }
+  }, [status?.linked, linking])
+
+  useEffect(() => {
+    if (!isLinking) return
     const timer = setInterval(() => {
       void fetchStatus()
-    }, 2500)
+    }, 2000)
     return () => clearInterval(timer)
-  }, [linking])
+  }, [isLinking])
 
   const handleStartLinking = async () => {
     setLinking(true)
@@ -132,6 +144,22 @@ export function WhatsappForm({
         err instanceof Error ? err.message : "Failed to start linking",
       )
       setLinking(false)
+    }
+  }
+
+  const handleCancelLinking = async () => {
+    setCancelling(true)
+    try {
+      await cancelWhatsAppLinking()
+      toast.success("Linking cancelled")
+      setLinking(false)
+      await fetchStatus()
+    } catch (err: unknown) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to cancel linking",
+      )
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -295,85 +323,157 @@ export function WhatsappForm({
                 </div>
               ) : (
                 <div className="border-border/30 space-y-4 border-t pt-3">
-                  <div className="bg-muted/40 border-border/40 flex flex-col gap-3 rounded-xl border p-3.5 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <IconQrcode className="size-4 text-emerald-500" />
-                        <span className="text-foreground text-xs font-semibold">
-                          {linking
-                            ? "Linking In Progress"
-                            : "Native Device Pairing"}
-                        </span>
+                  {!isLinking ? (
+                    <div className="bg-muted/40 border-border/40 flex flex-col gap-3 rounded-xl border p-3.5 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <IconQrcode className="size-4 text-emerald-500" />
+                          <span className="text-foreground text-xs font-semibold">
+                            Native Device Pairing
+                          </span>
+                        </div>
+                        <p className="text-muted-foreground text-[11px]">
+                          Start the linking process to generate a pairing QR code for WhatsApp Web.
+                        </p>
                       </div>
-                      <p className="text-muted-foreground text-[11px]">
-                        {linking
-                          ? "Gateway is running. Scan the QR code displayed in the logs with your phone."
-                          : "Start the linking process to generate a pairing QR code for WhatsApp Web."}
-                      </p>
-                    </div>
 
-                    <div className="flex shrink-0 items-center gap-2">
-                      <Button
-                        type="button"
-                        onClick={handleStartLinking}
-                        disabled={linking}
-                        className="h-8 gap-1.5 bg-emerald-600 text-xs text-white shadow-xs hover:bg-emerald-700"
-                      >
-                        {linking ? (
-                          <IconLoader2 className="size-3.5 animate-spin" />
-                        ) : (
+                      <div className="flex shrink-0 items-center gap-2">
+                        <Button
+                          type="button"
+                          onClick={handleStartLinking}
+                          disabled={linking}
+                          className="h-8 gap-1.5 bg-emerald-600 text-xs text-white shadow-xs hover:bg-emerald-700"
+                        >
                           <IconLink className="size-3.5" />
-                        )}
-                        {linking ? "Generating..." : "Start Linking"}
-                      </Button>
+                          Start Linking
+                        </Button>
 
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void fetchStatus()}
-                        disabled={loadingStatus}
-                        className="h-8 gap-1 text-xs"
-                        title="Check connection status"
-                      >
-                        <IconRefresh
-                          className={`size-3.5 ${loadingStatus ? "animate-spin" : ""}`}
-                        />
-                      </Button>
-                    </div>
-                  </div>
-
-                  {linking && (
-                    <div className="space-y-2.5 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs">
-                      <div className="flex items-center gap-2 font-medium text-emerald-700 dark:text-emerald-300">
-                        <span className="relative flex size-2">
-                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
-                          <span className="relative inline-flex size-2 rounded-full bg-emerald-500"></span>
-                        </span>
-                        Waiting for device scan...
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void fetchStatus()}
+                          disabled={loadingStatus}
+                          className="h-8 gap-1 text-xs"
+                          title="Check connection status"
+                        >
+                          <IconRefresh
+                            className={`size-3.5 ${loadingStatus ? "animate-spin" : ""}`}
+                          />
+                        </Button>
                       </div>
-                      <ol className="text-muted-foreground list-inside list-decimal space-y-1 pl-1 text-[11px]">
-                        <li>
-                          Open <strong>WhatsApp on your phone</strong> &gt;
-                          Settings &gt; Linked Devices &gt; Link a Device
-                        </li>
-                        <li>
-                          Open Gateway Logs to scan the terminal QR code:
-                          <a
-                            href="/logs"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-primary ml-1.5 inline-flex items-center gap-1 font-semibold underline"
+                    </div>
+                  ) : (
+                    <div className="space-y-4 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3.5 sm:p-5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/40 pb-3">
+                        <div className="flex items-center gap-2 font-medium text-xs sm:text-sm text-emerald-700 dark:text-emerald-300">
+                          <span className="relative flex size-2.5">
+                            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex size-2.5 rounded-full bg-emerald-500"></span>
+                          </span>
+                          Pairing in progress — scan with WhatsApp
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handleCancelLinking}
+                            disabled={cancelling}
+                            className="h-8 gap-1.5 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30"
                           >
-                            Open Gateway Logs{" "}
-                            <IconExternalLink className="size-3" />
-                          </a>
-                        </li>
-                        <li>
-                          Point your phone camera at the QR code in the logs to
-                          finish pairing.
-                        </li>
-                      </ol>
+                            {cancelling ? (
+                              <IconLoader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <IconX className="size-3.5" />
+                            )}
+                            Cancel Linking
+                          </Button>
+
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => void fetchStatus()}
+                            disabled={loadingStatus}
+                            className="size-8"
+                            title="Refresh QR"
+                          >
+                            <IconRefresh
+                              className={`size-3.5 ${loadingStatus ? "animate-spin" : ""}`}
+                            />
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5">
+                        {status?.qr_data_uri ? (
+                          <div className="flex flex-col items-center shrink-0 rounded-2xl bg-white p-3 shadow-md border border-border/80">
+                            <img
+                              src={status.qr_data_uri}
+                              alt="WhatsApp Pairing QR Code"
+                              className="size-48 sm:size-56 max-w-full aspect-square object-contain rounded-lg"
+                            />
+                            <span className="mt-1.5 text-[10px] font-medium text-neutral-500">
+                              Scan with WhatsApp camera
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex size-48 sm:size-56 shrink-0 flex-col items-center justify-center rounded-2xl border-2 border-dashed border-emerald-500/30 bg-muted/30 p-4 text-center">
+                            <IconLoader2 className="size-8 animate-spin text-emerald-500 mb-2" />
+                            <span className="text-xs font-semibold text-foreground">
+                              Generating QR code...
+                            </span>
+                            <span className="text-[11px] text-muted-foreground mt-1">
+                              Connecting to WhatsApp servers
+                            </span>
+                          </div>
+                        )}
+
+                        <div className="flex flex-col justify-between w-full space-y-3 min-w-0">
+                          <div className="space-y-2">
+                            <div className="font-semibold text-foreground text-xs sm:text-sm flex items-center gap-1.5">
+                              <IconQrcode className="size-4 text-emerald-600 dark:text-emerald-400" />
+                              Pairing Instructions:
+                            </div>
+                            <ol className="text-muted-foreground list-inside list-decimal space-y-1.5 text-xs sm:text-sm pl-0.5">
+                              <li>
+                                Open <strong className="text-foreground">WhatsApp</strong> on your mobile phone
+                              </li>
+                              <li>
+                                Tap <strong className="text-foreground">Settings</strong> (iOS) or <strong className="text-foreground">More options ⋮</strong> (Android)
+                              </li>
+                              <li>
+                                Tap <strong className="text-foreground">Linked Devices</strong> &gt; <strong className="text-foreground">Link a Device</strong>
+                              </li>
+                              <li>
+                                Point your phone camera at this QR code to finish pairing
+                              </li>
+                            </ol>
+                          </div>
+
+                          {status?.error && (
+                            <div className="text-destructive bg-destructive/10 border border-destructive/20 p-2.5 rounded-lg text-xs">
+                              {status.error}
+                            </div>
+                          )}
+
+                          <div className="pt-2 flex flex-wrap items-center justify-between gap-2 border-t border-border/40">
+                            <span className="text-[11px] text-muted-foreground">
+                              QR code rotates periodically for security.
+                            </span>
+                            <a
+                              href="/logs"
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-muted-foreground hover:text-foreground text-[11px] inline-flex items-center gap-1 underline"
+                            >
+                              Gateway Logs <IconExternalLink className="size-3" />
+                            </a>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>

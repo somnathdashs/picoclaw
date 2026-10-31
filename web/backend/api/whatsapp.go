@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -19,6 +20,7 @@ func (h *Handler) registerWhatsAppRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/whatsapp/status", h.handleWhatsAppStatus)
 	mux.HandleFunc("POST /api/whatsapp/unlink", h.handleWhatsAppUnlink)
 	mux.HandleFunc("POST /api/whatsapp/link", h.handleWhatsAppLink)
+	mux.HandleFunc("POST /api/whatsapp/cancel-link", h.handleWhatsAppCancelLink)
 }
 
 func (h *Handler) getWhatsAppInfo() (bc *config.Channel, ws *config.WhatsAppSettings, storePath string, err error) {
@@ -81,6 +83,21 @@ func (h *Handler) handleWhatsAppStatus(w http.ResponseWriter, r *http.Request) {
 	status := h.gatewayStatusData()
 	gwState, _ := status["gateway_status"].(string)
 
+	var qrDataURI, qrCode string
+	qrPath := filepath.Join(storePath, "qr.txt")
+	if fi, err := os.Stat(qrPath); err == nil && fi.Size() > 0 {
+		if time.Since(fi.ModTime()) < 5*time.Minute {
+			if data, err := os.ReadFile(qrPath); err == nil && len(data) > 0 {
+				qrCode = strings.TrimSpace(string(data))
+				if uri, err := generateQRDataURI(qrCode); err == nil {
+					qrDataURI = uri
+				}
+			}
+		} else {
+			_ = os.Remove(qrPath)
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"enabled":            bc.Enabled,
@@ -93,6 +110,8 @@ func (h *Handler) handleWhatsAppStatus(w http.ResponseWriter, r *http.Request) {
 		"phone":              phone,
 		"push_name":          pushName,
 		"gateway_running":    gwState == "running",
+		"qr_data_uri":        qrDataURI,
+		"qr_code":            qrCode,
 	})
 }
 
@@ -107,6 +126,7 @@ func (h *Handler) handleWhatsAppUnlink(w http.ResponseWriter, r *http.Request) {
 		filepath.Join(storePath, "store.db"),
 		filepath.Join(storePath, "store.db-wal"),
 		filepath.Join(storePath, "store.db-shm"),
+		filepath.Join(storePath, "qr.txt"),
 	}
 
 	for _, file := range filesToRemove {
@@ -138,13 +158,17 @@ func (h *Handler) handleWhatsAppLink(w http.ResponseWriter, r *http.Request) {
 
 	bc := cfg.Channels.Get(config.ChannelWhatsApp)
 	if bc == nil {
-		bc = &config.Channel{Type: config.ChannelWhatsApp}
+		bc = cfg.Channels.Get(config.ChannelWhatsAppNative)
+	}
+	if bc == nil {
+		bc = &config.Channel{Type: config.ChannelWhatsAppNative}
 		if cfg.Channels == nil {
 			cfg.Channels = make(config.ChannelsConfig)
 		}
 		cfg.Channels[config.ChannelWhatsApp] = bc
 	}
 	bc.Enabled = true
+	bc.Type = config.ChannelWhatsAppNative
 
 	var s config.WhatsAppSettings
 	if len(bc.Settings) > 0 {
@@ -173,3 +197,47 @@ func (h *Handler) handleWhatsAppLink(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *Handler) handleWhatsAppCancelLink(w http.ResponseWriter, r *http.Request) {
+	_, _, storePath, err := h.getWhatsAppInfo()
+	if err == nil && storePath != "" {
+		_ = os.Remove(filepath.Join(storePath, "qr.txt"))
+	}
+
+	cfg, err := config.LoadConfig(h.configPath)
+	if err == nil {
+		modified := false
+		for _, key := range []string{config.ChannelWhatsApp, config.ChannelWhatsAppNative} {
+			if bc := cfg.Channels.Get(key); bc != nil && bc.Enabled {
+				dbPath := filepath.Join(storePath, "store.db")
+				linked := false
+				if fi, err := os.Stat(dbPath); err == nil && fi.Size() > 0 {
+					db, err := sql.Open("sqlite", "file:"+dbPath+"?mode=ro")
+					if err == nil {
+						var rawJID sql.NullString
+						if err := db.QueryRow("SELECT jid FROM whatsmeow_device LIMIT 1").Scan(&rawJID); err == nil && rawJID.Valid && rawJID.String != "" {
+							linked = true
+						}
+						_ = db.Close()
+					}
+				}
+				if !linked {
+					bc.Enabled = false
+					modified = true
+				}
+			}
+		}
+		if modified {
+			_ = config.SaveConfig(h.configPath, cfg)
+			status := h.gatewayStatusData()
+			if gwState, _ := status["gateway_status"].(string); gwState == "running" {
+				_, _ = h.RestartGateway()
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success": true,
+		"message": "WhatsApp linking cancelled",
+	})
+}
