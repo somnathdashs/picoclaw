@@ -76,12 +76,10 @@ func (t *MessageTool) Parameters() map[string]any {
 			"description": "Optional: target channel (telegram, whatsapp, etc.)",
 		},
 		"chat_id": map[string]any{
-			"type":        "string",
-			"description": "Optional: target chat/user ID",
+			"description": "Optional: target chat/user ID, or phone number for WhatsApp (string or number)",
 		},
 		"to": map[string]any{
-			"type":        "string",
-			"description": "Optional alias for chat_id: target chat/user ID",
+			"description": "Optional alias for chat_id: target chat/user ID, or phone number for WhatsApp (string or number)",
 		},
 		"reply_to_message_id": map[string]any{
 			"type":        "string",
@@ -199,9 +197,10 @@ func (t *MessageTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 	}
 
 	channel, _ := args["channel"].(string)
-	chatID, _ := args["chat_id"].(string)
+	channel = strings.TrimSpace(channel)
+	chatID := stringifyChatID(args["chat_id"])
 	if chatID == "" {
-		chatID, _ = args["to"].(string)
+		chatID = stringifyChatID(args["to"])
 	}
 	replyToMessageID, _ := args["reply_to_message_id"].(string)
 
@@ -210,6 +209,15 @@ func (t *MessageTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 	}
 	if chatID == "" {
 		chatID = ToolChatID(ctx)
+	}
+
+	if strings.HasPrefix(chatID, "whatsapp:") {
+		channel = "whatsapp"
+		chatID = strings.TrimPrefix(chatID, "whatsapp:")
+	}
+
+	if channel == "whatsapp" || channel == "whatsapp_native" {
+		chatID = normalizeWhatsAppRecipient(chatID)
 	}
 
 	if channel == "" || chatID == "" {
@@ -383,4 +391,42 @@ func normalizeMessageMediaType(typeHint, filename, contentType string) string {
 	default:
 		return "file"
 	}
+}
+
+func stringifyChatID(val any) string {
+	if val == nil {
+		return ""
+	}
+	switch v := val.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case float64:
+		return fmt.Sprintf("%.0f", v)
+	case int:
+		return fmt.Sprintf("%d", v)
+	case int64:
+		return fmt.Sprintf("%d", v)
+	default:
+		return strings.TrimSpace(fmt.Sprintf("%v", v))
+	}
+}
+
+func normalizeWhatsAppRecipient(chatID string) string {
+	chatID = strings.TrimSpace(chatID)
+	chatID = strings.TrimPrefix(chatID, "whatsapp:")
+	if strings.Contains(chatID, "@") {
+		parts := strings.SplitN(chatID, "@", 2)
+		user := strings.TrimPrefix(parts[0], "+")
+		return user + "@" + parts[1]
+	}
+	var clean strings.Builder
+	for _, r := range chatID {
+		if r >= '0' && r <= '9' {
+			clean.WriteRune(r)
+		}
+	}
+	if clean.Len() > 0 {
+		return clean.String()
+	}
+	return chatID
 }

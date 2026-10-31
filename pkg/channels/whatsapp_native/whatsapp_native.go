@@ -454,11 +454,24 @@ func (c *WhatsAppNativeChannel) Send(ctx context.Context, msg bus.OutboundMessag
 // parseJID converts a chat ID (phone number or JID string) to types.JID.
 func parseJID(s string) (types.JID, error) {
 	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "whatsapp:")
 	if s == "" {
 		return types.JID{}, fmt.Errorf("empty chat id")
 	}
 	if strings.Contains(s, "@") {
-		return types.ParseJID(s)
+		parts := strings.SplitN(s, "@", 2)
+		user := strings.TrimPrefix(parts[0], "+")
+		return types.ParseJID(user + "@" + parts[1])
 	}
-	return types.NewJID(s, types.DefaultUserServer), nil
+	var clean strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			clean.WriteRune(r)
+		}
+	}
+	digits := clean.String()
+	if digits == "" {
+		return types.JID{}, fmt.Errorf("invalid phone number in chat id %q", s)
+	}
+	return types.NewJID(digits, types.DefaultUserServer), nil
 }

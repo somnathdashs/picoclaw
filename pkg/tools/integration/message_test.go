@@ -467,3 +467,80 @@ func TestMessageTool_Execute_WithMedia(t *testing.T) {
 		t.Fatal("expected media type to be inferred")
 	}
 }
+
+func TestMessageTool_WhatsAppNumberHandling(t *testing.T) {
+	tool := NewMessageTool()
+
+	var sentChannel, sentChatID string
+	tool.SetSendCallback(func(
+		ctx context.Context,
+		channel, chatID, content, replyToMessageID string,
+		mediaParts []bus.MediaPart,
+	) error {
+		sentChannel = channel
+		sentChatID = chatID
+		return nil
+	})
+
+	tests := []struct {
+		name        string
+		args        map[string]any
+		wantChannel string
+		wantChatID  string
+	}{
+		{
+			name: "phone with plus and spaces",
+			args: map[string]any{
+				"channel": "whatsapp",
+				"to":      "+91 98765 43210",
+				"content": "hi",
+			},
+			wantChannel: "whatsapp",
+			wantChatID:  "919876543210",
+		},
+		{
+			name: "numeric to argument",
+			args: map[string]any{
+				"channel": "whatsapp",
+				"to":      float64(919876543210),
+				"content": "hi",
+			},
+			wantChannel: "whatsapp",
+			wantChatID:  "919876543210",
+		},
+		{
+			name: "whatsapp prefix",
+			args: map[string]any{
+				"to":      "whatsapp:+1234567890",
+				"content": "hi",
+			},
+			wantChannel: "whatsapp",
+			wantChatID:  "1234567890",
+		},
+		{
+			name: "whatsapp JID with plus",
+			args: map[string]any{
+				"channel": "whatsapp",
+				"chat_id": "+919876543210@s.whatsapp.net",
+				"content": "hi",
+			},
+			wantChannel: "whatsapp",
+			wantChatID:  "919876543210@s.whatsapp.net",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res := tool.Execute(context.Background(), tc.args)
+			if res.IsError {
+				t.Fatalf("unexpected error: %s", res.ForLLM)
+			}
+			if sentChannel != tc.wantChannel {
+				t.Errorf("channel = %q, want %q", sentChannel, tc.wantChannel)
+			}
+			if sentChatID != tc.wantChatID {
+				t.Errorf("chatID = %q, want %q", sentChatID, tc.wantChatID)
+			}
+		})
+	}
+}

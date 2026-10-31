@@ -50,12 +50,22 @@ func MatchAllowed(sender bus.SenderInfo, allowed string) bool {
 		// (not a pure-numeric string, which could be a compound ID)
 		if !isNumeric(platform) {
 			candidate := BuildCanonicalID(platform, id)
-			if candidate != "" && sender.CanonicalID != "" {
-				return strings.EqualFold(sender.CanonicalID, candidate)
+			if candidate != "" && sender.CanonicalID != "" && strings.EqualFold(sender.CanonicalID, candidate) {
+				return true
 			}
-			// If sender has no canonical ID, try matching platform + platformID
-			return strings.EqualFold(platform, sender.Platform) &&
-				sender.PlatformID == id
+			if strings.EqualFold(platform, sender.Platform) {
+				if sender.PlatformID == id {
+					return true
+				}
+				if strings.EqualFold(platform, "whatsapp") {
+					senderDigits := extractPhoneDigits(sender.PlatformID)
+					idDigits := extractPhoneDigits(id)
+					if senderDigits != "" && senderDigits == idDigits {
+						return true
+					}
+				}
+			}
+			return false
 		}
 	}
 
@@ -91,7 +101,26 @@ func MatchAllowed(sender bus.SenderInfo, allowed string) bool {
 		return true
 	}
 
+	// For WhatsApp, match phone digits across formats (+91..., 91..., ...@s.whatsapp.net, whatsapp:...)
+	if sender.Platform == "whatsapp" {
+		senderDigits := extractPhoneDigits(sender.PlatformID)
+		allowedDigits := extractPhoneDigits(allowedID)
+		if senderDigits != "" && senderDigits == allowedDigits {
+			return true
+		}
+	}
+
 	return false
+}
+
+func extractPhoneDigits(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // isNumeric returns true if s consists entirely of digits, allowing for an optional leading minus sign

@@ -223,6 +223,34 @@ func TestMatchAllowed(t *testing.T) {
 			allowed: "  123456  ",
 			want:    true,
 		},
+		// WhatsApp phone formats
+		{
+			name: "whatsapp allowed with plus matches JID sender",
+			sender: bus.SenderInfo{
+				Platform:   "whatsapp",
+				PlatformID: "919876543210@s.whatsapp.net",
+			},
+			allowed: "+919876543210",
+			want:    true,
+		},
+		{
+			name: "whatsapp allowed with spaces matches JID sender",
+			sender: bus.SenderInfo{
+				Platform:   "whatsapp",
+				PlatformID: "919876543210@s.whatsapp.net",
+			},
+			allowed: "+91 98765 43210",
+			want:    true,
+		},
+		{
+			name: "whatsapp allowed with prefix matches JID sender",
+			sender: bus.SenderInfo{
+				Platform:   "whatsapp",
+				PlatformID: "919876543210@s.whatsapp.net",
+			},
+			allowed: "whatsapp:+919876543210",
+			want:    true,
+		},
 	}
 
 	for _, tt := range tests {
