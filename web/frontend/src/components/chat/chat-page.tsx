@@ -210,23 +210,6 @@ function groupChatMessages(
     }
   }
 
-  // Check if the current turn has a completed normal assistant text message
-  let currentTurnHasFinishedNormal = false
-  if (lastUserIndex !== -1) {
-    for (let i = lastUserIndex + 1; i < messages.length; i++) {
-      const m = messages[i]
-      if (
-        m.role === "assistant" &&
-        m.kind !== "thought" &&
-        m.kind !== "tool_calls" &&
-        Boolean(m.content && m.content.trim())
-      ) {
-        currentTurnHasFinishedNormal = true
-        break
-      }
-    }
-  }
-
   // Current turn is active only while typing is ongoing
   const isLatestTurnActive = Boolean(isTyping && lastUserIndex !== -1)
 
