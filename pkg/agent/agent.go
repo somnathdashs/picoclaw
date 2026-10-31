@@ -108,6 +108,7 @@ type processOptions struct {
 	AllowInterimPicoPublish bool                   // Whether pico tool-call interim text can be published when SendResponse is false
 	SuppressToolFeedback    bool                   // Whether to suppress inline tool feedback messages
 	NoHistory               bool                   // If true, don't load session history (for heartbeat)
+	DisallowFileWrites      bool                   // If true, disable file writing tools in temporary sessions
 	SkipInitialSteeringPoll bool                   // If true, skip the steering poll at loop start (used by Continue)
 	InboundContext          *bus.InboundContext    // Normalized inbound facts for events/hooks
 	RouteResult             *routing.ResolvedRoute // Route decision snapshot for events/hooks

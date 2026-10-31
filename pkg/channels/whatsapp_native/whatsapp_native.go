@@ -391,6 +391,11 @@ func (c *WhatsAppNativeChannel) handleIncoming(evt *events.Message) {
 	}
 
 	if !c.IsAllowedSender(sender) {
+		logger.WarnCF(
+			"whatsapp",
+			"WhatsApp message dropped from unallowed sender",
+			map[string]any{"sender_id": senderID, "sender_name": evt.Info.PushName},
+		)
 		return
 	}
 

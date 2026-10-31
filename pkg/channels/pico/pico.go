@@ -1234,6 +1234,16 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	}
 	if isTemporary {
 		metadata["temporary"] = "true"
+		if um, ok := msg.Payload["use_memory"].(bool); ok && um {
+			metadata["temporary_use_memory"] = "true"
+		} else {
+			metadata["temporary_use_memory"] = "false"
+		}
+		if sm, ok := msg.Payload["save_memory_and_files"].(bool); ok && sm {
+			metadata["temporary_save_files"] = "true"
+		} else {
+			metadata["temporary_save_files"] = "false"
+		}
 	}
 	if bhRaw, exists := msg.Payload["branch_history"]; exists && bhRaw != nil {
 		if bhBytes, err := json.Marshal(bhRaw); err == nil && len(bhBytes) >= 2 {

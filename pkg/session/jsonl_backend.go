@@ -73,6 +73,10 @@ func (b *JSONLBackend) EnsureSessionMetadata(sessionKey string, scope *SessionSc
 		return
 	}
 
+	if isTemporaryKey(sessionKey) {
+		return
+	}
+
 	var rawScope json.RawMessage
 	if scope != nil {
 		data, err := json.Marshal(scope)
@@ -119,6 +123,9 @@ func (b *JSONLBackend) GetSessionScope(sessionKey string) *SessionScope {
 }
 
 func (b *JSONLBackend) AddMessage(sessionKey, role, content string) {
+	if isTemporaryKey(sessionKey) {
+		return
+	}
 	sessionKey = b.resolveSessionKey(sessionKey)
 	if err := b.store.AddMessage(context.Background(), sessionKey, role, content); err != nil {
 		log.Printf("session: add message: %v", err)
@@ -126,6 +133,9 @@ func (b *JSONLBackend) AddMessage(sessionKey, role, content string) {
 }
 
 func (b *JSONLBackend) AddFullMessage(sessionKey string, msg providers.Message) {
+	if isTemporaryKey(sessionKey) {
+		return
+	}
 	sessionKey = b.resolveSessionKey(sessionKey)
 	if err := b.store.AddFullMessage(context.Background(), sessionKey, msg); err != nil {
 		log.Printf("session: add full message: %v", err)
@@ -153,6 +163,9 @@ func (b *JSONLBackend) GetSummary(key string) string {
 }
 
 func (b *JSONLBackend) SetSummary(key, summary string) {
+	if isTemporaryKey(key) {
+		return
+	}
 	key = b.resolveSessionKey(key)
 	if err := b.store.SetSummary(context.Background(), key, summary); err != nil {
 		log.Printf("session: set summary: %v", err)
@@ -160,6 +173,9 @@ func (b *JSONLBackend) SetSummary(key, summary string) {
 }
 
 func (b *JSONLBackend) SetHistory(key string, history []providers.Message) {
+	if isTemporaryKey(key) {
+		return
+	}
 	key = b.resolveSessionKey(key)
 	if err := b.store.SetHistory(context.Background(), key, history); err != nil {
 		log.Printf("session: set history: %v", err)
@@ -167,6 +183,9 @@ func (b *JSONLBackend) SetHistory(key string, history []providers.Message) {
 }
 
 func (b *JSONLBackend) TruncateHistory(key string, keepLast int) {
+	if isTemporaryKey(key) {
+		return
+	}
 	key = b.resolveSessionKey(key)
 	if err := b.store.TruncateHistory(context.Background(), key, keepLast); err != nil {
 		log.Printf("session: truncate history: %v", err)
@@ -177,6 +196,9 @@ func (b *JSONLBackend) TruncateHistory(key string, keepLast int) {
 // immediately, the data is already durable. Save runs compaction to reclaim
 // space from logically truncated messages (no-op when there are none).
 func (b *JSONLBackend) Save(key string) error {
+	if isTemporaryKey(key) {
+		return nil
+	}
 	key = b.resolveSessionKey(key)
 	return b.store.Compact(context.Background(), key)
 }
@@ -188,5 +210,12 @@ func (b *JSONLBackend) Close() error {
 
 // ListSessions returns all known session keys.
 func (b *JSONLBackend) ListSessions() []string {
-	return b.store.ListSessions()
+	keys := b.store.ListSessions()
+	filtered := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if !isTemporaryKey(k) {
+			filtered = append(filtered, k)
+		}
+	}
+	return filtered
 }

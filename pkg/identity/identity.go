@@ -57,10 +57,10 @@ func MatchAllowed(sender bus.SenderInfo, allowed string) bool {
 				if sender.PlatformID == id {
 					return true
 				}
-				if strings.EqualFold(platform, "whatsapp") {
+				if strings.EqualFold(platform, "whatsapp") || strings.EqualFold(platform, "whatsapp_native") {
 					senderDigits := extractPhoneDigits(sender.PlatformID)
 					idDigits := extractPhoneDigits(id)
-					if senderDigits != "" && senderDigits == idDigits {
+					if matchPhoneDigits(senderDigits, idDigits) {
 						return true
 					}
 				}
@@ -102,10 +102,10 @@ func MatchAllowed(sender bus.SenderInfo, allowed string) bool {
 	}
 
 	// For WhatsApp, match phone digits across formats (+91..., 91..., ...@s.whatsapp.net, whatsapp:...)
-	if sender.Platform == "whatsapp" {
+	if strings.EqualFold(sender.Platform, "whatsapp") || strings.EqualFold(sender.Platform, "whatsapp_native") {
 		senderDigits := extractPhoneDigits(sender.PlatformID)
 		allowedDigits := extractPhoneDigits(allowedID)
-		if senderDigits != "" && senderDigits == allowedDigits {
+		if matchPhoneDigits(senderDigits, allowedDigits) {
 			return true
 		}
 	}
@@ -121,6 +121,21 @@ func extractPhoneDigits(s string) string {
 		}
 	}
 	return b.String()
+}
+
+func matchPhoneDigits(senderDigits, allowedDigits string) bool {
+	if senderDigits == "" || allowedDigits == "" {
+		return false
+	}
+	if senderDigits == allowedDigits {
+		return true
+	}
+	if len(senderDigits) >= 7 && len(allowedDigits) >= 7 {
+		if strings.HasSuffix(senderDigits, allowedDigits) || strings.HasSuffix(allowedDigits, senderDigits) {
+			return true
+		}
+	}
+	return false
 }
 
 // isNumeric returns true if s consists entirely of digits, allowing for an optional leading minus sign

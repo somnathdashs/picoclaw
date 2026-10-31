@@ -210,12 +210,20 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	}
 
 	isTemporary := false
+	temporaryUseMemory := false
+	temporarySaveFiles := false
 	if msg.Context.Raw != nil {
 		if tVal, ok := msg.Context.Raw["temporary"]; ok && (tVal == "true" || tVal == "1") {
 			isTemporary = true
 		}
 		if sID, ok := msg.Context.Raw["session_id"]; ok && (strings.HasPrefix(sID, "temp-") || strings.HasPrefix(sID, "temporary-")) {
 			isTemporary = true
+		}
+		if umVal, ok := msg.Context.Raw["temporary_use_memory"]; ok && (umVal == "true" || umVal == "1") {
+			temporaryUseMemory = true
+		}
+		if sfVal, ok := msg.Context.Raw["temporary_save_files"]; ok && (sfVal == "true" || sfVal == "1") {
+			temporarySaveFiles = true
 		}
 	}
 	if strings.HasPrefix(sessionKey, "temp-") || strings.HasPrefix(sessionKey, "temporary-") ||
@@ -225,10 +233,18 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	if isTemporary {
 		opts.NoHistory = true
 		opts.EnableSummary = false
-		opts.SystemPromptOverride = "[SYSTEM DIRECTIVE: TEMPORARY CHAT SESSION ACTIVE]\n" +
-			"- Do NOT recall, search, or reference any prior long-term user memories or past session history. Treat this as a fresh, stateless interaction.\n" +
-			"- Strictly DO NOT save or record any new memories, notes, or persistent user information.\n" +
-			"- Strictly DO NOT create, write, or modify any files on the filesystem."
+		opts.DisallowFileWrites = !temporarySaveFiles
+
+		var directives []string
+		directives = append(directives, "[SYSTEM DIRECTIVE: TEMPORARY CHAT SESSION ACTIVE]")
+		if !temporaryUseMemory {
+			directives = append(directives, "- Do NOT recall, search, or reference any prior long-term user memories or past session history. Treat this as a fresh, stateless interaction.")
+		}
+		if !temporarySaveFiles {
+			directives = append(directives, "- Strictly DO NOT save or record any new memories, notes, or persistent user information.")
+			directives = append(directives, "- Strictly DO NOT create, write, or modify any files on the filesystem. You are operating in strictly read-only mode.")
+		}
+		opts.SystemPromptOverride = strings.Join(directives, "\n")
 	}
 
 	var err error

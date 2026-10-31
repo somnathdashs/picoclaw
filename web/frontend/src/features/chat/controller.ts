@@ -301,6 +301,10 @@ interface SendChatMessageInput {
   displayContent?: string
   attachments?: ChatAttachment[]
   temporary?: boolean
+  temporarySettings?: {
+    useMemory?: boolean
+    saveMemoryAndFiles?: boolean
+  }
 }
 
 function attachFileTagsToContent(
@@ -332,6 +336,7 @@ export function sendChatMessage({
   displayContent,
   attachments = [],
   temporary = false,
+  temporarySettings,
 }: SendChatMessageInput) {
   const state = getChatState()
   const sessionId = state.activeSessionId
@@ -396,7 +401,13 @@ export function sendChatMessage({
       content: outgoingContent,
       media: imageAttachments.map((attachment) => attachment.url),
       branch_history: branchHistory,
-      ...(isTemporary ? { temporary: true } : {}),
+      ...(isTemporary
+        ? {
+            temporary: true,
+            use_memory: temporarySettings?.useMemory ?? false,
+            save_memory_and_files: temporarySettings?.saveMemoryAndFiles ?? false,
+          }
+        : {}),
     }
 
     socket.send(

@@ -131,6 +131,33 @@ toolLoop:
 
 		toolName := tc.Name
 		toolArgs := cloneStringAnyMap(tc.Arguments)
+
+		if ts.opts.DisallowFileWrites {
+			isWriteTool := false
+			switch toolName {
+			case "write_file", "edit_file", "append_file", "install_skill":
+				isWriteTool = true
+			}
+			if isWriteTool {
+				exec.allResponsesHandled = false
+				denyContent := fmt.Sprintf("Tool %q is disabled: writing or modifying files is strictly forbidden in this temporary session.", toolName)
+				al.emitEvent(
+					runtimeevents.KindAgentToolExecSkipped,
+					ts.eventMeta("runTurn", "turn.tool.skipped"),
+					ToolExecSkippedPayload{
+						Tool:   toolName,
+						Reason: denyContent,
+					},
+				)
+				deniedMsg := providers.Message{
+					Role:       "tool",
+					Content:    denyContent,
+					ToolCallID: tc.ID,
+				}
+				messages = append(messages, deniedMsg)
+				continue toolLoop
+			}
+		}
 		denyByTurnProfile := func() bool {
 			if turnProfileToolAllowed(ts.profile, toolName) {
 				return false

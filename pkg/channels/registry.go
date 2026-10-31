@@ -58,12 +58,16 @@ func RegisterSafeFactory[S any](
 	})
 }
 
-// getFactory looks up a channel factory by name.
-func getFactory(name string) (ChannelFactory, bool) {
+// GetFactory looks up a channel factory by name.
+func GetFactory(name string) (ChannelFactory, bool) {
 	factoriesMu.RLock()
 	defer factoriesMu.RUnlock()
 	f, ok := factories[name]
 	return f, ok
+}
+
+func getFactory(name string) (ChannelFactory, bool) {
+	return GetFactory(name)
 }
 
 // GetRegisteredFactoryNames returns a slice of all registered channel factory names.

@@ -38,6 +38,18 @@ func (p *Pipeline) CallLLM(
 	exec.gracefulTerminal, _ = ts.gracefulInterruptRequested()
 	exec.providerToolDefs = ts.agent.Tools.ToProviderDefs()
 	exec.providerToolDefs = filterToolsByTurnProfile(exec.providerToolDefs, ts.profile)
+	if ts.opts.DisallowFileWrites {
+		filtered := make([]providers.ToolDefinition, 0, len(exec.providerToolDefs))
+		for _, td := range exec.providerToolDefs {
+			switch td.Function.Name {
+			case "write_file", "edit_file", "append_file", "install_skill":
+				continue
+			default:
+				filtered = append(filtered, td)
+			}
+		}
+		exec.providerToolDefs = filtered
+	}
 
 	// Native web search support
 	webSearchEnabled := al.cfg.Tools.IsToolEnabled("web") && turnProfileToolAllowed(ts.profile, "web_search")

@@ -19,6 +19,11 @@ func init() {
 			if !ok {
 				return nil, channels.ErrSendFailed
 			}
+			if c.UseNative {
+				if nativeFactory, ok := channels.GetFactory(config.ChannelWhatsAppNative); ok {
+					return nativeFactory(channelName, channelType, cfg, b)
+				}
+			}
 			return NewWhatsAppChannel(bc, c, b)
 		},
 	)

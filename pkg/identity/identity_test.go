@@ -251,6 +251,33 @@ func TestMatchAllowed(t *testing.T) {
 			allowed: "whatsapp:+919876543210",
 			want:    true,
 		},
+		{
+			name: "whatsapp 10-digit national number matches JID with country code",
+			sender: bus.SenderInfo{
+				Platform:   "whatsapp",
+				PlatformID: "918480044030@s.whatsapp.net",
+			},
+			allowed: "8480044030",
+			want:    true,
+		},
+		{
+			name: "whatsapp canonical format with 10-digit national number matches JID",
+			sender: bus.SenderInfo{
+				Platform:   "whatsapp",
+				PlatformID: "918480044030@s.whatsapp.net",
+			},
+			allowed: "whatsapp:8480044030",
+			want:    true,
+		},
+		{
+			name: "whatsapp national number mismatch",
+			sender: bus.SenderInfo{
+				Platform:   "whatsapp",
+				PlatformID: "918480044030@s.whatsapp.net",
+			},
+			allowed: "9999999999",
+			want:    false,
+		},
 	}
 
 	for _, tt := range tests {

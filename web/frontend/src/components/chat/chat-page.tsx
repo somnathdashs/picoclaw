@@ -628,6 +628,12 @@ export function ChatPage() {
         content: input,
         attachments,
         temporary: isTemporaryChat,
+        temporarySettings: isTemporaryChat
+          ? {
+              useMemory,
+              saveMemoryAndFiles,
+            }
+          : undefined,
       })
     ) {
       messageWasVoiceRef.current = wasVoice

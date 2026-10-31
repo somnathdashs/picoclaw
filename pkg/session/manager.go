@@ -82,10 +82,15 @@ func (sm *SessionManager) AddMessage(sessionKey, role, content string) {
 	})
 }
 
+func isTemporaryKey(key string) bool {
+	return strings.HasPrefix(key, "temp-") || strings.HasPrefix(key, "temporary-") ||
+		strings.Contains(key, ":temp-") || strings.Contains(key, ":temporary-")
+}
+
 // AddFullMessage adds a complete message with tool calls and tool call ID to the session.
 // This is used to save the full conversation flow including tool calls and tool results.
 func (sm *SessionManager) AddFullMessage(sessionKey string, msg providers.Message) {
-	if messageutil.IsTransientAssistantThoughtMessage(msg) {
+	if messageutil.IsTransientAssistantThoughtMessage(msg) || isTemporaryKey(sessionKey) {
 		return
 	}
 
@@ -173,7 +178,9 @@ func (sm *SessionManager) ListSessions() []string {
 	defer sm.mu.RUnlock()
 	keys := make([]string, 0, len(sm.sessions))
 	for k := range sm.sessions {
-		keys = append(keys, k)
+		if !isTemporaryKey(k) {
+			keys = append(keys, k)
+		}
 	}
 	return keys
 }
@@ -191,7 +198,7 @@ func sanitizeFilename(key string) string {
 }
 
 func (sm *SessionManager) Save(key string) error {
-	if sm.storage == "" {
+	if sm.storage == "" || isTemporaryKey(key) {
 		return nil
 	}
 

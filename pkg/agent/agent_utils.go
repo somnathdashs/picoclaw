@@ -400,6 +400,10 @@ func ensureSessionMetadata(store session.SessionStore, key string, scope *sessio
 	if key == "" || scope == nil {
 		return
 	}
+	if strings.HasPrefix(key, "temp-") || strings.HasPrefix(key, "temporary-") ||
+		strings.Contains(key, ":temp-") || strings.Contains(key, ":temporary-") {
+		return
+	}
 	metaStore, ok := store.(interface {
 		EnsureSessionMetadata(sessionKey string, scope *session.SessionScope, aliases []string)
 	})
