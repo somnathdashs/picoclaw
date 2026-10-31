@@ -337,7 +337,7 @@ async function connectEdgeSocket(urls: string[]): Promise<WebSocket> {
             resolve(socket)
           }
         }
-        socket.onerror = (e) => {
+        socket.onerror = () => {
           if (!settled) {
             settled = true
             clearTimeout(timeout)
