@@ -300,6 +300,7 @@ interface SendChatMessageInput {
   content: string
   displayContent?: string
   attachments?: ChatAttachment[]
+  temporary?: boolean
 }
 
 function attachFileTagsToContent(
@@ -330,6 +331,7 @@ export function sendChatMessage({
   content,
   displayContent,
   attachments = [],
+  temporary = false,
 }: SendChatMessageInput) {
   const state = getChatState()
   const sessionId = state.activeSessionId
@@ -356,6 +358,14 @@ export function sendChatMessage({
     return false
   }
 
+  const isTemporary = Boolean(
+    temporary ||
+    sessionId.startsWith("temp-") ||
+    sessionId.startsWith("temporary-") ||
+    sessionId.includes(":temp-") ||
+    sessionId.includes(":temporary-")
+  )
+
   const id = `msg-${++msgIdCounter}-${Date.now()}`
   const branchHistory = formatBranchHistory(state.messages)
   const userText = displayContent?.trim() || normalizedContent
@@ -375,7 +385,9 @@ export function sendChatMessage({
     isTyping: true,
   })
   sessionTypingMap.set(sessionId, true)
-  recordLocalSession(sessionId, userText)
+  if (!isTemporary) {
+    recordLocalSession(sessionId, userText)
+  }
 
   try {
     const outgoingContent = attachFileTagsToContent(normalizedContent, fileAttachments)
@@ -384,6 +396,7 @@ export function sendChatMessage({
       content: outgoingContent,
       media: imageAttachments.map((attachment) => attachment.url),
       branch_history: branchHistory,
+      ...(isTemporary ? { temporary: true } : {}),
     }
 
     socket.send(

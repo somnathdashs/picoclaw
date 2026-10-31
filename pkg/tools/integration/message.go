@@ -79,6 +79,10 @@ func (t *MessageTool) Parameters() map[string]any {
 			"type":        "string",
 			"description": "Optional: target chat/user ID",
 		},
+		"to": map[string]any{
+			"type":        "string",
+			"description": "Optional alias for chat_id: target chat/user ID",
+		},
 		"reply_to_message_id": map[string]any{
 			"type":        "string",
 			"description": "Optional: reply target message ID for channels that support threaded replies",
@@ -196,6 +200,9 @@ func (t *MessageTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 
 	channel, _ := args["channel"].(string)
 	chatID, _ := args["chat_id"].(string)
+	if chatID == "" {
+		chatID, _ = args["to"].(string)
+	}
 	replyToMessageID, _ := args["reply_to_message_id"].(string)
 
 	if channel == "" {

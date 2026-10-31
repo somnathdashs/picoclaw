@@ -407,7 +407,10 @@ func sessionRefFromMeta(meta memory.SessionMeta) (picoJSONLSessionRef, bool) {
 
 func isTemporarySessionID(id string) bool {
 	lower := strings.ToLower(strings.TrimSpace(id))
-	return strings.HasPrefix(lower, "temp-") || strings.HasPrefix(lower, "temp_") || strings.HasPrefix(lower, "temporary-") || strings.HasPrefix(lower, "temporary_")
+	return strings.HasPrefix(lower, "temp-") || strings.HasPrefix(lower, "temp_") ||
+		strings.HasPrefix(lower, "temporary-") || strings.HasPrefix(lower, "temporary_") ||
+		strings.Contains(lower, ":temp-") || strings.Contains(lower, ":temporary-") ||
+		strings.Contains(lower, "_temp-") || strings.Contains(lower, "_temporary-")
 }
 
 func (h *Handler) findPicoJSONLSessions(dir string) ([]picoJSONLSessionRef, error) {

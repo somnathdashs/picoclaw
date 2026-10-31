@@ -208,6 +208,29 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		SendResponse:            false,
 		AllowInterimPicoPublish: true,
 	}
+
+	isTemporary := false
+	if msg.Context.Raw != nil {
+		if tVal, ok := msg.Context.Raw["temporary"]; ok && (tVal == "true" || tVal == "1") {
+			isTemporary = true
+		}
+		if sID, ok := msg.Context.Raw["session_id"]; ok && (strings.HasPrefix(sID, "temp-") || strings.HasPrefix(sID, "temporary-")) {
+			isTemporary = true
+		}
+	}
+	if strings.HasPrefix(sessionKey, "temp-") || strings.HasPrefix(sessionKey, "temporary-") ||
+		strings.Contains(sessionKey, ":temp-") || strings.Contains(sessionKey, ":temporary-") {
+		isTemporary = true
+	}
+	if isTemporary {
+		opts.NoHistory = true
+		opts.EnableSummary = false
+		opts.SystemPromptOverride = "[SYSTEM DIRECTIVE: TEMPORARY CHAT SESSION ACTIVE]\n" +
+			"- Do NOT recall, search, or reference any prior long-term user memories or past session history. Treat this as a fresh, stateless interaction.\n" +
+			"- Strictly DO NOT save or record any new memories, notes, or persistent user information.\n" +
+			"- Strictly DO NOT create, write, or modify any files on the filesystem."
+	}
+
 	var err error
 	opts, err = resolveTurnProfileOptions(al.GetConfig(), opts)
 	if err != nil {

@@ -215,12 +215,8 @@ export function reducePicoMessage(
       return { messages: prevMessages, isTyping: false }
 
     case "error": {
-      const requestId =
-        typeof payload.request_id === "string" ? payload.request_id : ""
       return {
-        messages: requestId
-          ? prevMessages.filter((msg) => msg.id !== requestId)
-          : prevMessages,
+        messages: prevMessages,
         isTyping: false,
       }
     }

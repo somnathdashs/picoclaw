@@ -1220,10 +1220,20 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	chatID := "pico:" + sessionID
 	senderID := "pico-user"
 
+	isTemporary := strings.HasPrefix(sessionID, "temp-") || strings.HasPrefix(sessionID, "temporary-")
+	if tempRaw, ok := msg.Payload["temporary"]; ok {
+		if b, ok := tempRaw.(bool); ok && b {
+			isTemporary = true
+		}
+	}
+
 	metadata := map[string]string{
 		"platform":   "pico",
 		"session_id": sessionID,
 		"conn_id":    pc.id,
+	}
+	if isTemporary {
+		metadata["temporary"] = "true"
 	}
 	if bhRaw, exists := msg.Payload["branch_history"]; exists && bhRaw != nil {
 		if bhBytes, err := json.Marshal(bhRaw); err == nil && len(bhBytes) >= 2 {

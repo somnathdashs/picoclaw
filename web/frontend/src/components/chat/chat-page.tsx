@@ -227,9 +227,8 @@ function groupChatMessages(
     }
   }
 
-  // Current turn is active if typing is ongoing OR assistant hasn't completed its normal message yet
-  const isLatestTurnActive =
-    lastUserIndex !== -1 && (isTyping || !currentTurnHasFinishedNormal)
+  // Current turn is active only while typing is ongoing
+  const isLatestTurnActive = Boolean(isTyping && lastUserIndex !== -1)
 
   let currentTurnUserMessage: ChatMessage | null = null
 
@@ -634,35 +633,6 @@ export function ChatPage() {
   const handleSend = () => {
     if ((!input.trim() && attachments.length === 0) || !canInput) return
 
-    let promptToSend = input
-    if (isTemporaryChat) {
-      const instructions: string[] = [
-        "[SYSTEM DIRECTIVE: TEMPORARY CHAT SESSION ACTIVE]",
-      ]
-      if (!useMemory) {
-        instructions.push(
-          "- Do NOT recall, search, or reference any prior long-term user memories or past session history. Treat this as a fresh, stateless interaction.",
-        )
-      } else {
-        instructions.push(
-          "- You are permitted to reference relevant existing long-term user memories and context.",
-        )
-      }
-
-      if (!saveMemoryAndFiles) {
-        instructions.push(
-          "- Strictly DO NOT save or record any new memories, notes, or persistent user information.",
-          "- Strictly DO NOT create, write, or modify any files on the filesystem.",
-        )
-      } else {
-        instructions.push(
-          "- You may write requested files or record memory if explicitly requested, but this chat session remains temporary.",
-        )
-      }
-
-      promptToSend = `${instructions.join("\n")}\n\nUser: ${input}`
-    }
-
     if (connectionState !== "connected") {
       toast.info(t("chat.disabledPlaceholder.websocketConnecting"))
       void connect()
@@ -672,9 +642,9 @@ export function ChatPage() {
     const wasVoice = lastInputWasVoice
     if (
       sendMessage({
-        content: promptToSend,
-        displayContent: input,
+        content: input,
         attachments,
+        temporary: isTemporaryChat,
       })
     ) {
       messageWasVoiceRef.current = wasVoice

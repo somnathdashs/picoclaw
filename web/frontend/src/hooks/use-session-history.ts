@@ -127,6 +127,14 @@ export function useSessionHistory({
     }
 
     for (const [id, meta] of Object.entries(localSessions)) {
+      if (
+        id.startsWith("temp-") ||
+        id.startsWith("temporary-") ||
+        id.includes(":temp-") ||
+        id.includes(":temporary-")
+      ) {
+        continue
+      }
       if (!apiIds.has(id)) {
         optimisticList.push({
           id,

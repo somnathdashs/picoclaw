@@ -122,7 +122,7 @@ export function bumpSessionListRevision() {
 }
 
 export function recordLocalSession(id: string, text: string) {
-  if (!id || id.startsWith("temp-") || id.startsWith("temporary-")) return
+  if (!id || id.startsWith("temp-") || id.startsWith("temporary-") || id.includes(":temp-") || id.includes(":temporary-")) return
   const clean = text.trim()
   if (!clean) return
   writeStoredSessionId(id)

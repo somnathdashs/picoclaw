@@ -15,7 +15,9 @@ export function writeStoredSessionId(sessionId: string) {
   if (
     sessionId &&
     !sessionId.startsWith("temp-") &&
-    !sessionId.startsWith("temporary-")
+    !sessionId.startsWith("temporary-") &&
+    !sessionId.includes(":temp-") &&
+    !sessionId.includes(":temporary-")
   ) {
     try {
       globalThis.localStorage?.setItem(LAST_SESSION_STORAGE_KEY, sessionId)
@@ -64,7 +66,13 @@ export function generateTemporarySessionId(): string {
 
 export function getInitialActiveSessionId(): string {
   const val = readStorageValue()
-  if (val && !val.startsWith("temp-") && !val.startsWith("temporary-")) {
+  if (
+    val &&
+    !val.startsWith("temp-") &&
+    !val.startsWith("temporary-") &&
+    !val.includes(":temp-") &&
+    !val.includes(":temporary-")
+  ) {
     return val
   }
   return generateSessionId()
