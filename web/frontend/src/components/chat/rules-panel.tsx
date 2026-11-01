@@ -33,11 +33,18 @@ const DEFAULT_RULES_TEMPLATE = `# Global Model Rules
 - Keep output neatly formatted in GitHub-flavored Markdown.
 `
 
+import { usePanelResize } from "@/hooks/use-panel-resize"
+
 interface RulesPanelProps {
   onClose: () => void
 }
 
 export function RulesPanel({ onClose }: RulesPanelProps) {
+  const { width, isResizing, isMobile, maxScreenPercent, startResizing } = usePanelResize({
+    storageKey: "picoclaw_rules_panel_width",
+    defaultWidth: 420,
+    maxScreenPercent: 55,
+  })
   const [content, setContent] = useState("")
   const [initialContent, setInitialContent] = useState("")
   const [loading, setLoading] = useState(false)
@@ -120,7 +127,33 @@ export function RulesPanel({ onClose }: RulesPanelProps) {
   }
 
   return (
-    <aside className="w-full md:w-84 lg:w-96 xl:w-[420px] shrink-0 border-l border-border bg-card/70 backdrop-blur-md flex flex-col h-full z-20 absolute inset-0 md:static transition-all duration-200 shadow-xl md:shadow-none animate-in fade-in slide-in-from-right-4">
+    <aside
+      style={
+        !isMobile && width
+          ? {
+              width: `${width}px`,
+              maxWidth: `${maxScreenPercent}vw`,
+            }
+          : undefined
+      }
+      className={`w-full shrink-0 border-l border-border bg-card/70 flex flex-col h-full z-20 absolute inset-0 md:static ${
+        isResizing ? "select-none transition-none" : "transition-all duration-200 backdrop-blur-md"
+      } shadow-xl md:shadow-none animate-in fade-in slide-in-from-right-4 relative max-w-full md:max-w-[55vw]`}>
+      {/* Fullscreen overlay to capture mouse events during resize */}
+      {isResizing && (
+        <div className="fixed inset-0 z-50 cursor-ew-resize select-none pointer-events-auto" />
+      )}
+
+      {/* Resizer handle on desktop */}
+      <div
+        onMouseDown={startResizing}
+        onTouchStart={startResizing}
+        className="hidden md:block absolute -left-1.5 top-0 bottom-0 w-3 cursor-ew-resize z-30 group"
+        title="Drag to resize panel"
+      >
+        <div className="w-1 h-full mx-auto transition-colors group-hover:bg-primary/50 group-active:bg-primary" />
+      </div>
+
       {/* Top Header */}
       <div className="p-3.5 sm:p-4 border-b border-border/70 flex items-center justify-between gap-2 bg-muted/20">
         <div className="flex items-center gap-2 min-w-0">

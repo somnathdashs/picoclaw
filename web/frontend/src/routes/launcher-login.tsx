@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { clearStoredSessionId } from "@/features/chat/state"
 import { useTheme } from "@/hooks/use-theme"
 
 function LauncherLoginPage() {
@@ -39,7 +40,7 @@ function LauncherLoginPage() {
         if (!s.initialized) {
           globalThis.location.assign("/launcher-setup")
         } else if (s.authenticated) {
-          globalThis.location.assign("/dashboard")
+          globalThis.location.assign("/chat")
         }
       })
       .catch(() => {
@@ -54,7 +55,8 @@ function LauncherLoginPage() {
       try {
         const result = await postLauncherDashboardLogin(passwordValue)
         if (result.ok) {
-          globalThis.location.assign("/dashboard")
+          clearStoredSessionId()
+          globalThis.location.assign("/chat")
           return
         }
         if (result.status === 409) {

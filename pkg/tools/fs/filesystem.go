@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ import (
 
 	"github.com/sipeed/picoclaw/pkg/fileutil"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/sipeed/picoclaw/pkg/media"
 )
 
 const MaxReadFileSize = 64 * 1024 // 64KB limit to avoid context overflow
@@ -36,6 +38,106 @@ func IsAllowedPath(path string, patterns []*regexp.Regexp) bool {
 	return isAllowedPath(path, patterns)
 }
 
+// IsTempOrMediaPath reports whether path is within media temp directory.
+func IsTempOrMediaPath(path string) bool {
+	if path == "" {
+		return false
+	}
+	cleaned := filepath.Clean(path)
+	mediaDir := filepath.Clean(media.TempDir())
+
+	if runtime.GOOS == "windows" {
+		cleaned = strings.ToLower(cleaned)
+		mediaDir = strings.ToLower(mediaDir)
+	}
+
+	if strings.HasPrefix(cleaned, mediaDir) {
+		return true
+	}
+	rel, err := filepath.Rel(mediaDir, cleaned)
+	return err == nil && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)
+}
+
+func isTempOrMediaPath(path string) bool {
+	return IsTempOrMediaPath(path)
+}
+
+func resolveCandidatePath(path, workspace string) string {
+	if path == "" {
+		return path
+	}
+	cleaned := filepath.Clean(path)
+
+	// If path exists as-is on the filesystem, use it directly
+	if _, err := os.Stat(cleaned); err == nil {
+		return cleaned
+	}
+
+	mediaDir := filepath.Clean(media.TempDir())
+
+	// 1. Normalize Unix-style /tmp/ or \tmp\ or tmp/ on any OS (especially Windows)
+	toSlash := filepath.ToSlash(path)
+	trimmedSlash := strings.TrimPrefix(toSlash, "/")
+	if strings.HasPrefix(toSlash, "/tmp/") || strings.HasPrefix(toSlash, "/var/tmp/") || strings.HasPrefix(trimmedSlash, "tmp/") {
+		sub := strings.TrimPrefix(toSlash, "/tmp/")
+		sub = strings.TrimPrefix(sub, "/var/tmp/")
+		sub = strings.TrimPrefix(sub, "tmp/")
+
+		cand := filepath.Join(mediaDir, filepath.FromSlash(sub))
+		if _, err := os.Stat(cand); err == nil {
+			return cand
+		}
+
+		baseName := filepath.Base(sub)
+		cand = filepath.Join(mediaDir, baseName)
+		if _, err := os.Stat(cand); err == nil {
+			return cand
+		}
+
+		if entries, err := os.ReadDir(mediaDir); err == nil {
+			suffix := "_" + baseName
+			for _, entry := range entries {
+				if !entry.IsDir() && (strings.HasSuffix(entry.Name(), suffix) || entry.Name() == baseName) {
+					return filepath.Join(mediaDir, entry.Name())
+				}
+			}
+		}
+	}
+
+	// 2. Check within workspace if workspace is provided
+	if workspace != "" {
+		cand := filepath.Join(workspace, cleaned)
+		if _, err := os.Stat(cand); err == nil {
+			return cand
+		}
+	}
+
+	// 3. Check inside media.TempDir() directly
+	cand := filepath.Join(mediaDir, cleaned)
+	if _, err := os.Stat(cand); err == nil {
+		return cand
+	}
+
+	// 4. Check base name in media.TempDir()
+	baseName := filepath.Base(cleaned)
+	cand = filepath.Join(mediaDir, baseName)
+	if _, err := os.Stat(cand); err == nil {
+		return cand
+	}
+
+	// 5. Scan media.TempDir() for files ending with _<baseName> (uuid_filename pattern)
+	if entries, err := os.ReadDir(mediaDir); err == nil {
+		suffix := "_" + baseName
+		for _, entry := range entries {
+			if !entry.IsDir() && (strings.HasSuffix(entry.Name(), suffix) || entry.Name() == baseName) {
+				return filepath.Join(mediaDir, entry.Name())
+			}
+		}
+	}
+
+	return cleaned
+}
+
 func validatePathWithAllowPaths(
 	path, workspace string,
 	restrict bool,
@@ -45,13 +147,22 @@ func validatePathWithAllowPaths(
 		return path, fmt.Errorf("workspace is not defined")
 	}
 
+	candidate := resolveCandidatePath(path, workspace)
+	if isTempOrMediaPath(candidate) {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+
 	absWorkspace, err := filepath.Abs(workspace)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve workspace path: %w", err)
 	}
 
 	var absPath string
-	if filepath.IsAbs(path) {
+	if filepath.IsAbs(candidate) {
+		absPath = filepath.Clean(candidate)
+	} else if filepath.IsAbs(path) {
 		absPath = filepath.Clean(path)
 	} else {
 		absPath, err = filepath.Abs(filepath.Join(absWorkspace, path))
@@ -61,12 +172,12 @@ func validatePathWithAllowPaths(
 	}
 
 	if restrict {
-		if isAllowedPath(absPath, patterns) {
+		if isAllowedPath(absPath, patterns) || isTempOrMediaPath(absPath) {
 			return absPath, nil
 		}
 
 		if !isWithinWorkspace(absPath, absWorkspace) {
-			return "", fmt.Errorf("access denied: path is outside the workspace")
+			return "", fmt.Errorf("access denied: path is outside the workspace (enable 'Allow Read Outside Workspace' in the Config settings page to allow reading outside workspace)")
 		}
 
 		var resolved string
@@ -97,6 +208,9 @@ func validatePathWithAllowPaths(
 }
 
 func isAllowedPath(path string, patterns []*regexp.Regexp) bool {
+	if isTempOrMediaPath(path) {
+		return true
+	}
 	if len(patterns) == 0 {
 		return false
 	}
@@ -1123,8 +1237,12 @@ func (r *sandboxFs) execute(path string, fn func(root *os.Root, relPath string) 
 }
 
 func (r *sandboxFs) ReadFile(path string) ([]byte, error) {
+	resolved := resolveCandidatePath(path, r.workspace)
+	if isTempOrMediaPath(resolved) {
+		return os.ReadFile(resolved)
+	}
 	var content []byte
-	err := r.execute(path, func(root *os.Root, relPath string) error {
+	err := r.execute(resolved, func(root *os.Root, relPath string) error {
 		fileContent, err := root.ReadFile(relPath)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -1197,8 +1315,12 @@ func (r *sandboxFs) WriteFile(path string, data []byte) error {
 }
 
 func (r *sandboxFs) ReadDir(path string) ([]os.DirEntry, error) {
+	resolved := resolveCandidatePath(path, r.workspace)
+	if isTempOrMediaPath(resolved) {
+		return os.ReadDir(resolved)
+	}
 	var entries []os.DirEntry
-	err := r.execute(path, func(root *os.Root, relPath string) error {
+	err := r.execute(resolved, func(root *os.Root, relPath string) error {
 		dirEntries, err := fs.ReadDir(root.FS(), relPath)
 		if err != nil {
 			return err
@@ -1210,8 +1332,12 @@ func (r *sandboxFs) ReadDir(path string) ([]os.DirEntry, error) {
 }
 
 func (r *sandboxFs) Open(path string) (fs.File, error) {
+	resolved := resolveCandidatePath(path, r.workspace)
+	if isTempOrMediaPath(resolved) {
+		return os.Open(resolved)
+	}
 	var f fs.File
-	err := r.execute(path, func(root *os.Root, relPath string) error {
+	err := r.execute(resolved, func(root *os.Root, relPath string) error {
 		file, err := root.Open(relPath)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -1238,35 +1364,43 @@ type whitelistFs struct {
 }
 
 func (w *whitelistFs) matches(path string) bool {
-	return isAllowedPath(path, w.patterns)
+	cand := resolveCandidatePath(path, w.sandbox.workspace)
+	if isTempOrMediaPath(cand) {
+		return true
+	}
+	return isAllowedPath(cand, w.patterns)
 }
 
 func (w *whitelistFs) ReadFile(path string) ([]byte, error) {
-	if w.matches(path) {
-		return w.host.ReadFile(path)
+	cand := resolveCandidatePath(path, w.sandbox.workspace)
+	if w.matches(cand) {
+		return w.host.ReadFile(cand)
 	}
-	return w.sandbox.ReadFile(path)
+	return w.sandbox.ReadFile(cand)
 }
 
 func (w *whitelistFs) WriteFile(path string, data []byte) error {
-	if w.matches(path) {
-		return w.host.WriteFile(path, data)
+	cand := resolveCandidatePath(path, w.sandbox.workspace)
+	if w.matches(cand) {
+		return w.host.WriteFile(cand, data)
 	}
-	return w.sandbox.WriteFile(path, data)
+	return w.sandbox.WriteFile(cand, data)
 }
 
 func (w *whitelistFs) ReadDir(path string) ([]os.DirEntry, error) {
-	if w.matches(path) {
-		return w.host.ReadDir(path)
+	cand := resolveCandidatePath(path, w.sandbox.workspace)
+	if w.matches(cand) {
+		return w.host.ReadDir(cand)
 	}
-	return w.sandbox.ReadDir(path)
+	return w.sandbox.ReadDir(cand)
 }
 
 func (w *whitelistFs) Open(path string) (fs.File, error) {
-	if w.matches(path) {
-		return w.host.Open(path)
+	cand := resolveCandidatePath(path, w.sandbox.workspace)
+	if w.matches(cand) {
+		return w.host.Open(cand)
 	}
-	return w.sandbox.Open(path)
+	return w.sandbox.Open(cand)
 }
 
 // buildFs returns the appropriate fileSystem implementation based on restriction

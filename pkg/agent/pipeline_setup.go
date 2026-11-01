@@ -121,9 +121,12 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 		}
 	}
 
-	if !ts.opts.NoHistory && (strings.TrimSpace(ts.userMessage) != "" || len(ts.media) > 0) {
+	if !ts.opts.NoHistory && (strings.TrimSpace(ts.userMessage) != "" || len(ts.media) > 0 || len(ts.attachments) > 0) {
 		rootMsg := userPromptMessage(ts.userMessage, ts.media)
-		if len(rootMsg.Media) > 0 {
+		if len(ts.attachments) > 0 {
+			rootMsg.Attachments = append([]providers.Attachment(nil), ts.attachments...)
+		}
+		if len(rootMsg.Media) > 0 || len(rootMsg.Attachments) > 0 {
 			ts.agent.Sessions.AddFullMessage(ts.sessionKey, rootMsg)
 		} else {
 			ts.agent.Sessions.AddMessage(ts.sessionKey, rootMsg.Role, rootMsg.Content)

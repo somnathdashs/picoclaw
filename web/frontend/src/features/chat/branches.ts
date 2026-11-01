@@ -33,6 +33,15 @@ export function formatBranchHistory(messages: ChatMessage[]) {
       .filter((att) => att.type === "image" && att.url)
       .map((att) => att.url)
 
+    const attachments = (m.attachments ?? []).map((att) => ({
+      type: att.type,
+      url: att.url,
+      filename: att.filename,
+      content_type: att.contentType,
+      path: att.path,
+      ref: att.path || att.url,
+    }))
+
     const toolCalls = (m.toolCalls ?? []).map((tc) => ({
       id: tc.id ?? "",
       type: tc.type ?? "function",
@@ -47,6 +56,7 @@ export function formatBranchHistory(messages: ChatMessage[]) {
       content: m.content,
       model_name: m.modelName,
       media: media.length > 0 ? media : undefined,
+      attachments: attachments.length > 0 ? attachments : undefined,
       tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
     }
   })

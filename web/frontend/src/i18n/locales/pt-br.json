@@ -775,6 +775,8 @@
       "workspace_hint": "Diretório base para operações de arquivo do agente.",
       "restrict_workspace": "Restringir ao Workspace",
       "restrict_workspace_hint": "Permitir operações de arquivo apenas dentro do workspace.",
+      "allow_read_outside_workspace": "Permitir Leitura Fora do Workspace",
+      "allow_read_outside_workspace_hint": "Permite ler arquivos fora do workspace mantendo as operações de escrita restritas.",
       "split_on_marker": "Modo Tagarela",
       "split_on_marker_hint": "Dividir mensagens longas em várias curtas, como em uma conversa real.",
       "tool_feedback_enabled": "Feedback de Ferramentas",

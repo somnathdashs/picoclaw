@@ -2,7 +2,7 @@ import { getDefaultStore } from "jotai"
 import { toast } from "sonner"
 
 import { deleteSession } from "@/api/sessions"
-import { loadSessionMessages } from "@/features/chat/history"
+import { cleanAttachmentFilename, loadSessionMessages } from "@/features/chat/history"
 import {
   formatBranchHistory,
   reconstructBranchesFromHistory,
@@ -313,7 +313,7 @@ function attachFileTagsToContent(
 ): string {
   const normalized = content.trim()
   const fileAttachments = attachments.filter(
-    (att) => att.type === "file" && (att.filename || att.url),
+    (att) => att.type === "file" && (att.filename || att.url || att.path),
   )
   if (fileAttachments.length === 0) {
     return normalized
@@ -321,8 +321,8 @@ function attachFileTagsToContent(
 
   const fileTags = fileAttachments
     .map((f) => {
-      const filePath = f.url || f.filename
-      return f.filename && f.url && f.url !== f.filename
+      const filePath = f.path || f.url || f.filename
+      return f.filename && filePath && filePath !== f.filename
         ? `${f.filename} [file:${filePath}]`
         : `[file:${filePath}]`
     })
@@ -400,6 +400,15 @@ export function sendChatMessage({
     const payload: Record<string, unknown> = {
       content: outgoingContent,
       media: imageAttachments.map((attachment) => attachment.url),
+      attachments: attachments.map((att) => ({
+        type: att.type,
+        url: att.url,
+        filename: cleanAttachmentFilename(att.filename),
+        content_type: att.contentType,
+        path: att.path,
+        ref: att.path || att.url,
+        size: att.size,
+      })),
       branch_history: branchHistory,
       ...(isTemporary
         ? {
@@ -592,6 +601,14 @@ export function regenerateAssistantTurn(assistantMessageId: string): boolean {
       media: (newMsg.attachments || [])
         .filter((att) => att.type === "image" && att.url)
         .map((att) => att.url),
+      attachments: (newMsg.attachments || []).map((att) => ({
+        type: att.type,
+        url: att.url,
+        filename: att.filename,
+        content_type: att.contentType,
+        path: att.path,
+        size: att.size,
+      })),
       branch_history: formatBranchHistory(state.messages.slice(0, userIdx)),
     }
 
@@ -711,6 +728,14 @@ export function editUserTurn(
       media: (newMsg.attachments || [])
         .filter((att) => att.type === "image" && att.url)
         .map((att) => att.url),
+      attachments: (newMsg.attachments || []).map((att) => ({
+        type: att.type,
+        url: att.url,
+        filename: att.filename,
+        content_type: att.contentType,
+        path: att.path,
+        size: att.size,
+      })),
       branch_history: formatBranchHistory(state.messages.slice(0, userIdx)),
     }
 

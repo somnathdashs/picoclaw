@@ -4,12 +4,12 @@ import {
   IconChevronLeft,
   IconChevronRight,
   IconCopy,
-  IconFile,
   IconPencil,
 } from "@tabler/icons-react"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@/components/ui/button"
+import { FileExtensionBadge } from "@/components/chat/file-extension-badge"
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard"
 import { formatMessageTime } from "@/hooks/use-pico-chat"
 import { cn } from "@/lib/utils"
@@ -25,6 +25,7 @@ interface UserMessageProps {
   isBranchLocked?: boolean
   onSwitchBranch?: (targetIndex: number) => void
   onEdit?: (newText: string) => void
+  onPreviewFile?: (file: ChatAttachment) => void
 }
 
 function renderSpecialQueryTokens(text: string, inTerminalMode: boolean) {
@@ -78,6 +79,7 @@ export function UserMessage({
   isBranchLocked = false,
   onSwitchBranch,
   onEdit,
+  onPreviewFile,
 }: UserMessageProps) {
   const { t } = useTranslation()
   const { copy, isCopied } = useCopyToClipboard()
@@ -133,22 +135,30 @@ export function UserMessage({
       {fileAttachments.length > 0 && (
         <div className="flex max-w-[85%] sm:max-w-[70%] flex-wrap justify-end gap-2">
           {fileAttachments.map((attachment, index) => (
-            <div
+            <button
+              type="button"
               key={`${attachment.filename || attachment.url}-${index}`}
-              className="flex items-center gap-2.5 rounded-xl border border-border/70 bg-card/90 px-3 py-2 text-xs shadow-2xs"
+              onClick={() => onPreviewFile?.(attachment)}
+              className="flex items-center gap-2.5 rounded-xl border border-border/70 bg-card/90 px-3 py-2 text-xs shadow-2xs transition-all hover:border-primary/50 hover:bg-muted/40 active:scale-[0.98] cursor-pointer text-left"
+              title={attachment.filename || "View file preview"}
             >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400">
-                <IconFile className="size-4" />
-              </div>
+              <FileExtensionBadge
+                filename={attachment.filename || "file"}
+                contentType={attachment.contentType}
+                size="md"
+              />
               <div className="min-w-0 text-left">
                 <div className="truncate font-medium text-foreground max-w-[180px]">
                   {attachment.filename || "file"}
                 </div>
-                <div className="text-[10px] text-muted-foreground">
-                  Workspace file
+                <div className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <span>Workspace file</span>
+                  {typeof attachment.size === "number" && attachment.size > 0 && (
+                    <span>• {attachment.size < 1024 ? `${attachment.size} B` : `${Math.round(attachment.size / 1024)} KB`}</span>
+                  )}
                 </div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -156,12 +166,19 @@ export function UserMessage({
       {imageAttachments.length > 0 && (
         <div className="flex max-w-[85%] sm:max-w-[70%] flex-wrap justify-end gap-2">
           {imageAttachments.map((attachment, index) => (
-            <img
+            <button
+              type="button"
               key={`${attachment.url}-${index}`}
-              src={attachment.url}
-              alt={attachment.filename || t("chat.uploadedImage")}
-              className="max-h-72 max-w-full object-cover rounded-xl border border-border/50"
-            />
+              onClick={() => onPreviewFile?.(attachment)}
+              className="cursor-pointer overflow-hidden rounded-xl border border-border/50 hover:opacity-95 hover:border-primary/50 transition-all active:scale-[0.98]"
+              title={attachment.filename || "View image preview"}
+            >
+              <img
+                src={attachment.url}
+                alt={attachment.filename || t("chat.uploadedImage")}
+                className="max-h-72 max-w-full object-cover rounded-xl"
+              />
+            </button>
           ))}
         </div>
       )}

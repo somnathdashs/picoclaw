@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sipeed/picoclaw/pkg/media"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -1311,3 +1312,45 @@ func TestReadFileLinesTool_ExactByteBudgetBoundaryIncludesPrefix(t *testing.T) {
 		t.Fatalf("expected continuation at line 2, got: %s", result.ForLLM)
 	}
 }
+
+func TestFilesystemTool_ReadFile_MediaTempDirResolution(t *testing.T) {
+	mediaDir := media.TempDir()
+	_ = os.MkdirAll(mediaDir, 0o755)
+	testContent := "hello uploaded media file"
+	fileName := "uploaded_invoice.txt"
+	uuidFileName := "98765432-1111-2222-3333-444455556666_" + fileName
+	fullPath := filepath.Join(mediaDir, uuidFileName)
+	err := os.WriteFile(fullPath, []byte(testContent), 0o644)
+	if err != nil {
+		t.Fatalf("failed to write test media file: %v", err)
+	}
+	defer os.Remove(fullPath)
+
+	workspace := t.TempDir()
+	tool := NewReadFileTool(workspace, true, MaxReadFileSize)
+
+	// Case 1: read by /tmp/uploaded_invoice.txt
+	res1 := tool.Execute(context.Background(), map[string]any{
+		"path": "/tmp/" + fileName,
+	})
+	if res1.IsError || !strings.Contains(res1.ForLLM, testContent) {
+		t.Fatalf("expected /tmp/ path to resolve media file, got: %v, %s", res1.IsError, res1.ForLLM)
+	}
+
+	// Case 2: read by base name
+	res2 := tool.Execute(context.Background(), map[string]any{
+		"path": fileName,
+	})
+	if res2.IsError || !strings.Contains(res2.ForLLM, testContent) {
+		t.Fatalf("expected base name to resolve media file, got: %v, %s", res2.IsError, res2.ForLLM)
+	}
+
+	// Case 3: read by exact uuid filename
+	res3 := tool.Execute(context.Background(), map[string]any{
+		"path": uuidFileName,
+	})
+	if res3.IsError || !strings.Contains(res3.ForLLM, testContent) {
+		t.Fatalf("expected uuid filename to resolve media file, got: %v, %s", res3.IsError, res3.ForLLM)
+	}
+}
+

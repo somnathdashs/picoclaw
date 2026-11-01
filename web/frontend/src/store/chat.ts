@@ -20,6 +20,10 @@ export interface ChatAttachment {
   url: string
   filename?: string
   contentType?: string
+  size?: number
+  path?: string
+  uploading?: boolean
+  id?: string
 }
 
 export interface ChatToolCallFunction {

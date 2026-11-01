@@ -780,6 +780,8 @@
       "workspace_hint": "智能体执行文件读写操作时使用的基础目录",
       "restrict_workspace": "限制工作目录访问",
       "restrict_workspace_hint": "仅允许在工作目录内执行文件操作",
+      "allow_read_outside_workspace": "允许读取工作区外文件",
+      "allow_read_outside_workspace_hint": "允许读取工作区之外的文件，同时保持写操作受限",
       "split_on_marker": "连续短消息",
       "split_on_marker_hint": "像真人聊天一样，把长难句拆成多条短消息快速发出",
       "tool_feedback_enabled": "工具反馈",

@@ -119,6 +119,7 @@ export function AttachmentPopup({
         side="top"
         align="start"
         sideOffset={10}
+        onOpenAutoFocus={(e) => e.preventDefault()}
         className="z-50 w-76 max-w-[calc(100vw-2rem)] rounded-2xl border border-border/80 bg-background/95 p-3 shadow-xl backdrop-blur-md duration-200 ease-out data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:slide-out-to-bottom-2"
       >
         <div className="pb-1.5 text-left">
@@ -127,14 +128,13 @@ export function AttachmentPopup({
           </div>
         </div>
 
-        <TooltipProvider delayDuration={100}>
+        <TooltipProvider delayDuration={150}>
           <div className="flex items-center gap-2 pt-0.5">
-            <Tooltip delayDuration={100}>
-              <TooltipTrigger asChild>
+            <Tooltip delayDuration={150}>
+              <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
                 <button
                   type="button"
                   onClick={handleCapture}
-                  title={t("chat.captureImage", "Capture image")}
                   aria-label={t("chat.captureImage", "Capture image")}
                   className="group flex flex-1 items-center justify-center h-10 rounded-xl border border-border/50 bg-muted/30 text-primary transition hover:border-primary/50 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active:scale-95"
                 >
@@ -146,12 +146,11 @@ export function AttachmentPopup({
               </TooltipContent>
             </Tooltip>
 
-            <Tooltip delayDuration={100}>
-              <TooltipTrigger asChild>
+            <Tooltip delayDuration={150}>
+              <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
                 <button
                   type="button"
                   onClick={handlePick}
-                  title={t("chat.pickImage", "Pick image")}
                   aria-label={t("chat.pickImage", "Pick image")}
                   className="group flex flex-1 items-center justify-center h-10 rounded-xl border border-border/50 bg-muted/30 text-primary transition hover:border-primary/50 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active:scale-95"
                 >
@@ -164,12 +163,11 @@ export function AttachmentPopup({
             </Tooltip>
 
             {onUploadFile && (
-              <Tooltip delayDuration={100}>
-                <TooltipTrigger asChild>
+              <Tooltip delayDuration={150}>
+                <TooltipTrigger asChild onFocus={(e) => e.preventDefault()}>
                   <button
                     type="button"
                     onClick={handleUploadFile}
-                    title={t("chat.uploadFile", "Pick a file")}
                     aria-label={t("chat.uploadFile", "Pick a file")}
                     className="group flex flex-1 items-center justify-center h-10 rounded-xl border border-border/50 bg-muted/30 text-primary transition hover:border-primary/50 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary active:scale-95"
                   >

@@ -80,6 +80,7 @@ type ContentBlock struct {
 type Attachment struct {
 	Type        string `json:"type,omitempty"`
 	Ref         string `json:"ref,omitempty"`
+	Path        string `json:"path,omitempty"`
 	URL         string `json:"url,omitempty"`
 	Filename    string `json:"filename,omitempty"`
 	ContentType string `json:"content_type,omitempty"`

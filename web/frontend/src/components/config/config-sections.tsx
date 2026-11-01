@@ -137,6 +137,16 @@ export function AgentDefaultsSection({
       />
 
       <SwitchCardField
+        label={t("pages.config.allow_read_outside_workspace")}
+        hint={t("pages.config.allow_read_outside_workspace_hint")}
+        layout="setting-row"
+        checked={form.allowReadOutsideWorkspace}
+        onCheckedChange={(checked) =>
+          onFieldChange("allowReadOutsideWorkspace", checked)
+        }
+      />
+
+      <SwitchCardField
         label={t("pages.config.split_on_marker")}
         hint={t("pages.config.split_on_marker_hint")}
         layout="setting-row"

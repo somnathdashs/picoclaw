@@ -360,7 +360,7 @@ func (t *ExecTool) executeRun(ctx context.Context, args map[string]any) *ToolRes
 		if err != nil {
 			return ErrorResult(fmt.Sprintf("Command blocked by safety guard (path resolution failed: %v)", err))
 		}
-		if isAllowedPath(resolved, t.allowedPathPatterns) {
+		if isAllowedPath(resolved, t.allowedPathPatterns) || isTempOrMediaPath(resolved) {
 			cwd = resolved
 		} else {
 			absWorkspace, _ := filepath.Abs(t.workingDir)
@@ -1265,7 +1265,7 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 			if safePaths[p] {
 				continue
 			}
-			if isAllowedPath(p, t.allowedPathPatterns) {
+			if isAllowedPath(p, t.allowedPathPatterns) || isTempOrMediaPath(p) {
 				continue
 			}
 
@@ -1275,7 +1275,7 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 			}
 
 			if strings.HasPrefix(rel, "..") {
-				return "Command blocked by safety guard (path outside working dir)"
+				return "Command blocked by safety guard (path outside working dir; enable 'Allow Read Outside Workspace' in the Config settings page to allow access)"
 			}
 		}
 	}

@@ -1762,3 +1762,125 @@ func TestHandleSessions_IgnoresMetaJSONInLegacyFallback(t *testing.T) {
 		t.Fatalf("len(items) = %d, want 0", len(items))
 	}
 }
+
+func TestHandleGetSession_ThoughtReasoningAndAttachmentCleanFilename(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+
+	sessionKey := picoSessionPrefix + "thought-and-uuid-cleanup"
+	messages := []providers.Message{
+		{
+			Role:    "user",
+			Content: "What is this file? Transfer.pdf [file:C:\\test\\d1be3f62_Transfer.pdf]",
+			Attachments: []providers.Attachment{{
+				Type:     "file",
+				Path:     "C:\\test\\d1be3f62_Transfer.pdf",
+				Filename: "d1be3f62_Transfer.pdf",
+			}},
+		},
+		{
+			Role:    "assistant",
+			Content: "User asks: What is this file? Transfer.pdf [file:C:\\test\\d1be3f62_Transfer.pdf]. Need to read file.",
+		},
+		{
+			Role: "assistant",
+			ToolCalls: []providers.ToolCall{{
+				ID:   "call_read",
+				Type: "function",
+				Function: &providers.FunctionCall{
+					Name:      "read_file",
+					Arguments: `{"path":"C:\\test\\d1be3f62_Transfer.pdf"}`,
+				},
+			}},
+		},
+		{
+			Role:       "tool",
+			ToolCallID: "call_read",
+			Content:    "PDF binary content",
+		},
+		{
+			Role:    "assistant",
+			Content: "User wants to know PDF content. We read and confirm it is a wire transfer.",
+		},
+		{
+			Role:    "assistant",
+			Content: "This PDF is a wire transfer confirmation.",
+		},
+	}
+	for _, m := range messages {
+		if err := store.AddFullMessage(nil, sessionKey, m); err != nil {
+			t.Fatalf("AddFullMessage() error = %v", err)
+		}
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/thought-and-uuid-cleanup", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var resp struct {
+		Messages []sessionChatMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+
+	if len(resp.Messages) < 5 {
+		t.Fatalf("len(resp.Messages) = %d, want >= 5", len(resp.Messages))
+	}
+	userMsg := resp.Messages[0]
+	if userMsg.Role != "user" {
+		t.Fatalf("userMsg.Role = %q, want user", userMsg.Role)
+	}
+	if len(userMsg.Attachments) != 1 {
+		t.Fatalf("len(userMsg.Attachments) = %d, want 1", len(userMsg.Attachments))
+	}
+	if userMsg.Attachments[0].Filename != "Transfer.pdf" {
+		t.Fatalf("attachment filename = %q, want Transfer.pdf (UUID stripped)", userMsg.Attachments[0].Filename)
+	}
+
+	thoughtMsg := resp.Messages[1]
+	if thoughtMsg.Role != "assistant" || thoughtMsg.Kind != "thought" {
+		t.Fatalf("thoughtMsg = %#v, want assistant with kind=thought", thoughtMsg)
+	}
+	if len(thoughtMsg.Attachments) != 0 {
+		t.Fatalf("thoughtMsg has attachments, want 0: %#v", thoughtMsg.Attachments)
+	}
+
+	toolCallMsg := resp.Messages[2]
+	if toolCallMsg.Role != "assistant" || toolCallMsg.Kind != "tool_calls" {
+		t.Fatalf("toolCallMsg = %#v, want assistant with kind=tool_calls", toolCallMsg)
+	}
+
+	secondThoughtMsg := resp.Messages[3]
+	if secondThoughtMsg.Role != "assistant" || secondThoughtMsg.Kind != "thought" {
+		t.Fatalf("secondThoughtMsg = %#v, want assistant with kind=thought", secondThoughtMsg)
+	}
+	if secondThoughtMsg.Content != "User wants to know PDF content. We read and confirm it is a wire transfer." {
+		t.Fatalf("secondThoughtMsg.Content = %q", secondThoughtMsg.Content)
+	}
+
+	finalMsg := resp.Messages[4]
+	if finalMsg.Role != "assistant" || (finalMsg.Kind != "" && finalMsg.Kind != "normal") {
+		t.Fatalf("finalMsg = %#v, want assistant with kind normal or empty", finalMsg)
+	}
+	if finalMsg.Content != "This PDF is a wire transfer confirmation." {
+		t.Fatalf("finalMsg.Content = %q", finalMsg.Content)
+	}
+	if len(finalMsg.Attachments) != 0 {
+		t.Fatalf("finalMsg has attachments, want 0: %#v", finalMsg.Attachments)
+	}
+}

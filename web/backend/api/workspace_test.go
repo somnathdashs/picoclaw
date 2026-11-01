@@ -54,7 +54,8 @@ func TestWorkspaceUpload(t *testing.T) {
 		t.Errorf("expected filename 'testfile.txt', got %q", item.Filename)
 	}
 
-	if !strings.HasPrefix(filepath.Clean(item.Path), filepath.Clean(media.TempDir())) {
+	cleanedPath := filepath.Clean(item.Path)
+	if !strings.HasPrefix(cleanedPath, filepath.Clean(media.TempDir())) {
 		t.Errorf("expected path to be inside media.TempDir(), got %q", item.Path)
 	}
 
@@ -77,5 +78,20 @@ func TestWorkspaceUpload(t *testing.T) {
 	if string(savedContent) != "hello workspace" {
 		t.Errorf("unexpected content %q", string(savedContent))
 	}
+
+	// Verify serving via base64 URL
+	if !strings.HasPrefix(item.URL, "/api/workspace/file?path=") {
+		t.Fatalf("expected item.URL to start with /api/workspace/file?path=, got %q", item.URL)
+	}
+	serveReq := httptest.NewRequest("GET", item.URL, nil)
+	serveRec := httptest.NewRecorder()
+	mux.ServeHTTP(serveRec, serveReq)
+	if serveRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for file serve, got %d: %s", serveRec.Code, serveRec.Body.String())
+	}
+	if serveRec.Body.String() != "hello workspace" {
+		t.Errorf("unexpected served content %q", serveRec.Body.String())
+	}
+
 	_ = os.Remove(item.Path)
 }

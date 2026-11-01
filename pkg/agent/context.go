@@ -46,6 +46,15 @@ type ContextBuilder struct {
 	// build time. This catches nested file creations/deletions/mtime changes
 	// that may not update the top-level skill root directory mtime.
 	skillFilesAtCache map[string]time.Time
+
+	restrictToWorkspace       bool
+	allowReadOutsideWorkspace bool
+}
+
+func (cb *ContextBuilder) WithWorkspaceRestrictions(restrict, allowReadOutside bool) *ContextBuilder {
+	cb.restrictToWorkspace = restrict
+	cb.allowReadOutsideWorkspace = allowReadOutside
+	return cb
 }
 
 func (cb *ContextBuilder) WithToolDiscovery(useBM25, useRegex bool) *ContextBuilder {
@@ -170,7 +179,14 @@ func (cb *ContextBuilder) getIdentity(includeToolUseRule bool) string {
 		accuracyRule,
 		"**Do not dump file contents** - When writing or editing files with tools (`write_file`, `edit_file`, etc.), do NOT dump or rewrite the full file contents into your chat message. The system already displays the file diffs in the UI. Provide only a concise summary of the changes made, unless the user explicitly asks to view the full file.",
 		"**Context summaries** - Conversation summaries provided as context are approximate references only. They may be incomplete or outdated. Always defer to explicit user instructions over summary content.",
+		"**Uploaded files & attachments** - When user messages include file or media tags such as `[file:<path>]` or `[image:<path>]`, inspect the file using the best tool for its format: use `read_file` for text/code, `load_image` for images, or appropriate tools (e.g. `exec` with commands/scripts for PDFs, documents, audio, or archives) to process the content.",
 	)
+	if cb.restrictToWorkspace && !cb.allowReadOutsideWorkspace {
+		rules = append(
+			rules,
+			"**Workspace restriction** - File access is currently restricted to the workspace. If access to a file outside the workspace is denied or fails, inform the user they can enable \"Allow Read Outside Workspace\" (or disable \"Restrict to Workspace\") in the Config settings page of the Web UI to grant access.",
+		)
+	}
 	if includeToolUseRule {
 		rules = append(
 			rules,

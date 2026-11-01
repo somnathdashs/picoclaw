@@ -29,3 +29,7 @@ Welcome to the PicoClaw user guide! PicoClaw is an ultra-lightweight personal AI
    - Edge API cloud neural voices and offline System speech synthesis
    - "Auto-read when user used mic" for natural voice replies
    - Interactive voice preview and microphone test tools
+6. [[Skills]]
+   - Built-in skills including Handle Any PDF Works (`handle-any-pdf-works`)
+   - Text extraction, OCR for scans, table reading, and PDF editing
+

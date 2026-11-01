@@ -31,6 +31,7 @@ import {
 import { ChatEmptyState } from "@/components/chat/chat-empty-state"
 import { ModelSelector } from "@/components/chat/model-selector"
 import { RulesPanel } from "@/components/chat/rules-panel"
+import { FilePreviewPanel, type PreviewableFile } from "@/components/chat/file-preview-panel"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { UserMessage } from "@/components/chat/user-message"
 import { PageHeader } from "@/components/page-header"
@@ -61,7 +62,7 @@ import {
   getTransferredFiles,
   hasFileTransfer,
 } from "@/features/chat/image-input"
-import { uploadToWorkspace } from "@/api/workspace"
+import { uploadToWorkspace, buildWorkspaceFileUrl } from "@/api/workspace"
 import { useChatModels } from "@/hooks/use-chat-models"
 import { useGateway } from "@/hooks/use-gateway"
 import { formatMessageTime, usePicoChat } from "@/hooks/use-pico-chat"
@@ -376,6 +377,7 @@ export function ChatPage() {
   )
   const [isConfirmingExitTemp, setIsConfirmingExitTemp] = useState(false)
   const [rulesOpen, setRulesOpen] = useState(false)
+  const [previewFile, setPreviewFile] = useState<PreviewableFile | null>(null)
   const { speakingMessageId, speak, ttsSettings } = useSpeechSynthesis()
   const [lastInputWasVoice, setLastInputWasVoice] = useAtom(lastInputWasVoiceAtom)
   const messageWasVoiceRef = useRef(false)
@@ -680,23 +682,44 @@ export function ChatPage() {
     }
 
     for (const file of files) {
+      const tempId = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+
+      // Immediately show file widget with circular progress bar
+      setAttachments((prev) => [
+        ...prev,
+        {
+          id: tempId,
+          type: "file",
+          filename: file.name,
+          size: file.size,
+          contentType: file.type,
+          url: "",
+          uploading: true,
+        },
+      ])
+
       try {
         const res = await uploadToWorkspace(file)
-        setAttachments((prev) => [
-          ...prev,
-          {
-            type: "file",
-            filename: res.filename,
-            url: res.path,
-            contentType: file.type,
-          },
-        ])
-        toast.success(
-          t("chat.fileUploaded", "Uploaded {{filename}} to workspace", {
-            filename: res.filename,
-          }),
+        const fileUrl = res.url || (res.path ? buildWorkspaceFileUrl(res.path) : "")
+
+        // On success: show cross and update attachment metadata
+        setAttachments((prev) =>
+          prev.map((att) =>
+            att.id === tempId
+              ? {
+                  ...att,
+                  uploading: false,
+                  filename: res.filename,
+                  path: res.path,
+                  url: fileUrl,
+                  size: res.size || file.size,
+                }
+              : att,
+          ),
         )
       } catch (err) {
+        // On failed: remove widget and show error toast
+        setAttachments((prev) => prev.filter((att) => att.id !== tempId))
         toast.error(
           t("chat.fileUploadFailed", "Failed to upload {{filename}}: {{error}}", {
             filename: file.name,
@@ -705,6 +728,23 @@ export function ChatPage() {
         )
       }
     }
+  }
+
+  const handlePreviewFile = (file: {
+    filename?: string
+    url?: string
+    path?: string
+    size?: number
+    contentType?: string
+  }) => {
+    setRulesOpen(false)
+    setPreviewFile({
+      filename: file.filename || "file",
+      url: file.url || (file.path ? buildWorkspaceFileUrl(file.path) : ""),
+      path: file.path,
+      size: file.size,
+      contentType: file.contentType,
+    })
   }
 
   const handleImageSelection = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -818,7 +858,9 @@ export function ChatPage() {
   }
 
   const canSubmit =
-    canInput && (Boolean(input.trim()) || attachments.length > 0)
+    canInput &&
+    (Boolean(input.trim()) || attachments.length > 0) &&
+    !attachments.some((a) => a.uploading)
 
   return (
     <div className="bg-background/95 flex h-full flex-col">
@@ -900,7 +942,13 @@ export function ChatPage() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48 p-1">
             <DropdownMenuItem
-              onClick={() => setRulesOpen((prev) => !prev)}
+              onClick={() => {
+                setRulesOpen((prev) => {
+                  const next = !prev
+                  if (next) setPreviewFile(null)
+                  return next
+                })
+              }}
               className="gap-2.5 cursor-pointer py-2"
             >
               <div className="size-6 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -1145,6 +1193,7 @@ export function ChatPage() {
                         ? (text) => speak(message.id, text)
                         : undefined
                     }
+                    onPreviewFile={handlePreviewFile}
                   />
                 ) : (
                   <UserMessage
@@ -1163,6 +1212,7 @@ export function ChatPage() {
                     onEdit={(newText) =>
                       handleEditUserMessage(message.id, newText)
                     }
+                    onPreviewFile={handlePreviewFile}
                   />
                 )}
               </div>
@@ -1221,6 +1271,7 @@ export function ChatPage() {
         contextUsage={contextUsage}
         thinkingLevel={currentModel?.thinking_level ?? ""}
         onUpdateThinkingLevel={handleUpdateThinking}
+        onPreviewAttachment={handlePreviewFile}
       />
 
       {!isAtBottom && messages.length > 0 && (
@@ -1243,6 +1294,12 @@ export function ChatPage() {
         {/* Inline Right Navigation / Sidebar Panel */}
         {rulesOpen && (
           <RulesPanel onClose={() => setRulesOpen(false)} />
+        )}
+        {previewFile && !rulesOpen && (
+          <FilePreviewPanel
+            file={previewFile}
+            onClose={() => setPreviewFile(null)}
+          />
         )}
       </div>
 

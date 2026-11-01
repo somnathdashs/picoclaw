@@ -1,6 +1,5 @@
 import {
   IconArrowUp,
-  IconFile,
   IconMicrophone,
   IconMicrophoneOff,
   IconPlayerStopFilled,
@@ -26,6 +25,7 @@ import { AttachmentPopup } from "@/components/chat/attachment-sheet"
 import { CameraCaptureDialog } from "@/components/chat/camera-capture-dialog"
 import { CommandSuggestions } from "@/components/chat/command-suggestions"
 import { ContextUsageRing } from "@/components/chat/context-usage-ring"
+import { FileExtensionBadge } from "@/components/chat/file-extension-badge"
 import { SkillSuggestions } from "@/components/chat/skill-suggestions"
 import { Button } from "@/components/ui/button"
 import {
@@ -77,6 +77,7 @@ interface ChatComposerProps {
   contextUsage?: ContextUsage
   thinkingLevel?: string
   onUpdateThinkingLevel?: (level: string) => Promise<void> | void
+  onPreviewAttachment?: (attachment: ChatAttachment) => void
   footer?: React.ReactNode
 }
 
@@ -151,6 +152,7 @@ export function ChatComposer({
   contextUsage,
   thinkingLevel,
   onUpdateThinkingLevel,
+  onPreviewAttachment,
   footer,
 }: ChatComposerProps) {
   const { t } = useTranslation()
@@ -158,12 +160,32 @@ export function ChatComposer({
   const composingRef = useRef(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const backdropRef = useRef<HTMLDivElement>(null)
+  const androidCameraInputRef = useRef<HTMLInputElement>(null)
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false)
   const [isCameraOpen, setIsCameraOpen] = useState(false)
   const [cursorPos, setCursorPos] = useState(0)
   const [isDismissed, setIsDismissed] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const hasInput = input.trim().length > 0 || attachments.length > 0
+
+  const handleCaptureTrigger = () => {
+    const isAndroid =
+      typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent)
+    if (isAndroid) {
+      androidCameraInputRef.current?.click()
+    } else {
+      setIsCameraOpen(true)
+    }
+  }
+
+  const handleAndroidCameraCapture = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const files = Array.from(event.target.files ?? [])
+    event.target.value = ""
+    if (files.length === 0) return
+    onCaptureImage?.(files[0])
+  }
 
   useEffect(() => {
     if (canInput) {
@@ -432,47 +454,139 @@ export function ChatComposer({
               {attachments.map((attachment, index) =>
                 attachment.type === "file" ? (
                   <div
-                    key={`${attachment.filename || attachment.url}-${index}`}
-                    className="bg-background relative flex items-center gap-2 rounded-xl border border-border/70 px-2.5 py-1.5 shadow-2xs max-w-[220px]"
+                    key={`${attachment.filename || attachment.url || attachment.id}-${index}`}
+                    onClick={() => {
+                      if (!attachment.uploading) {
+                        onPreviewAttachment?.(attachment)
+                      }
+                    }}
+                    className={`bg-background relative flex items-center gap-2 rounded-xl border border-border/70 px-2.5 py-1.5 shadow-2xs max-w-[220px] transition-colors ${
+                      attachment.uploading
+                        ? "opacity-80 cursor-wait border-primary/40 bg-muted/20"
+                        : "cursor-pointer hover:border-primary/50"
+                    }`}
+                    title={
+                      attachment.uploading
+                        ? "Uploading file..."
+                        : attachment.filename || "Click to preview"
+                    }
                   >
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400">
-                      <IconFile className="size-4" />
-                    </div>
+                    <FileExtensionBadge
+                      filename={attachment.filename || "file"}
+                      contentType={attachment.contentType}
+                      size="md"
+                    />
                     <div className="flex-1 min-w-0 pr-5">
                       <div className="truncate text-xs font-medium text-foreground">
                         {attachment.filename || "file"}
                       </div>
-                     
+                      {attachment.uploading && (
+                        <div className="text-[10px] text-primary animate-pulse font-medium">
+                          Uploading...
+                        </div>
+                      )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => onRemoveAttachment(index)}
-                      className="bg-background/85 text-foreground absolute top-1.5 right-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full border shadow-xs transition hover:bg-white dark:hover:bg-zinc-800"
-                      aria-label={t("chat.removeAttachment", "Remove attachment")}
-                      title={t("chat.removeAttachment", "Remove attachment")}
-                    >
-                      <IconX className="h-2.5 w-2.5" />
-                    </button>
+                    {attachment.uploading ? (
+                      <div
+                        className="absolute top-1.5 right-1.5 inline-flex h-4 w-4 items-center justify-center"
+                        title="Uploading..."
+                        aria-label="Uploading file"
+                      >
+                        <svg
+                          className="size-3.5 animate-spin text-primary"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                          />
+                        </svg>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onRemoveAttachment(index)
+                        }}
+                        className="bg-background/85 text-foreground absolute top-1.5 right-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full border shadow-xs transition hover:bg-white dark:hover:bg-zinc-800"
+                        aria-label={t("chat.removeAttachment", "Remove attachment")}
+                        title={t("chat.removeAttachment", "Remove attachment")}
+                      >
+                        <IconX className="h-2.5 w-2.5" />
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div
-                    key={`${attachment.url}-${index}`}
-                    className="bg-background relative h-16 w-16 overflow-hidden rounded-xl border"
+                    key={`${attachment.url || attachment.id}-${index}`}
+                    onClick={() => {
+                      if (!attachment.uploading) {
+                        onPreviewAttachment?.(attachment)
+                      }
+                    }}
+                    className={`bg-background relative h-16 w-16 overflow-hidden rounded-xl border transition-colors ${
+                      attachment.uploading
+                        ? "opacity-80 cursor-wait border-primary/40"
+                        : "cursor-pointer hover:border-primary/50"
+                    }`}
+                    title={
+                      attachment.uploading
+                        ? "Uploading image..."
+                        : attachment.filename || "Click to preview"
+                    }
                   >
                     <img
                       src={attachment.url}
                       alt={attachment.filename || t("chat.uploadedImage")}
                       className="h-full w-full object-cover"
                     />
-                    <button
-                      type="button"
-                      onClick={() => onRemoveAttachment(index)}
-                      className="bg-background/85 text-foreground absolute top-1 right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border shadow-xs transition hover:bg-white"
-                      aria-label={t("chat.removeImage")}
-                      title={t("chat.removeImage")}
-                    >
-                      <IconX className="h-3 w-3" />
-                    </button>
+                    {attachment.uploading ? (
+                      <div className="bg-background/85 absolute top-1 right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border shadow-xs">
+                        <svg
+                          className="size-3.5 animate-spin text-primary"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                          />
+                        </svg>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onRemoveAttachment(index)
+                        }}
+                        className="bg-background/85 text-foreground absolute top-1 right-1 inline-flex h-5 w-5 items-center justify-center rounded-full border shadow-xs transition hover:bg-white"
+                        aria-label={t("chat.removeImage")}
+                        title={t("chat.removeImage")}
+                      >
+                        <IconX className="h-3 w-3" />
+                      </button>
+                    )}
                   </div>
                 ),
               )}
@@ -484,7 +598,7 @@ export function ChatComposer({
               open={isAttachmentOpen}
               onOpenChange={setIsAttachmentOpen}
               onPickImage={onAddImages}
-              onCaptureImage={() => setIsCameraOpen(true)}
+              onCaptureImage={handleCaptureTrigger}
               onUploadFile={onUploadFile}
               thinkingLevel={thinkingLevel}
               onUpdateThinkingLevel={onUpdateThinkingLevel}
@@ -613,15 +727,19 @@ export function ChatComposer({
                   <IconPlayerStopFilled className="size-4" />
                 </Button>
               ) : canInput ? (
-                <span tabIndex={!canSend ? 0 : undefined}>
+                <span tabIndex={!canSend || attachments.some((a) => a.uploading) ? 0 : undefined}>
                   <Button
                     type="button"
                     size="icon"
                     className="size-8 rounded-full bg-primary text-primary-foreground transition-transform hover:bg-primary/90 active:scale-95 disabled:opacity-40"
                     onClick={onSend}
-                    disabled={!canSend}
+                    disabled={!canSend || attachments.some((a) => a.uploading)}
                     aria-label={t("chat.sendMessage")}
-                    title={t("chat.sendMessage")}
+                    title={
+                      attachments.some((a) => a.uploading)
+                        ? "Uploading attachments..."
+                        : t("chat.sendMessage")
+                    }
                   >
                     <IconArrowUp className="size-4" />
                   </Button>
@@ -646,6 +764,14 @@ export function ChatComposer({
         {footer && <div className="mt-1.5 w-full">{footer}</div>}
       </div>
 
+      <input
+        ref={androidCameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleAndroidCameraCapture}
+      />
       <CameraCaptureDialog
         open={isCameraOpen}
         onOpenChange={setIsCameraOpen}

@@ -160,13 +160,15 @@ func registerSharedTools(
 			agent.Tools.Register(tools.NewSerialTool())
 		}
 
+		readRestrict := cfg.Agents.Defaults.RestrictToWorkspace && !cfg.Agents.Defaults.AllowReadOutsideWorkspace
+
 		// Message tool
 		if cfg.Tools.IsToolEnabled("message") {
 			messageTool := tools.NewMessageTool()
 			if cfg.Tools.Message.MediaEnabled {
 				messageTool.ConfigureLocalMedia(
 					agent.Workspace,
-					cfg.Agents.Defaults.RestrictToWorkspace,
+					readRestrict,
 					cfg.Agents.Defaults.GetMaxMediaSize(),
 					allowReadPaths,
 				)
@@ -242,7 +244,7 @@ func registerSharedTools(
 		if cfg.Tools.IsToolEnabled("send_file") {
 			sendFileTool := tools.NewSendFileTool(
 				agent.Workspace,
-				cfg.Agents.Defaults.RestrictToWorkspace,
+				readRestrict,
 				cfg.Agents.Defaults.GetMaxMediaSize(),
 				nil,
 				allowReadPaths,
@@ -257,7 +259,7 @@ func registerSharedTools(
 		if cfg.Tools.IsToolEnabled("load_image") {
 			loadImageTool := tools.NewLoadImageTool(
 				agent.Workspace,
-				cfg.Agents.Defaults.RestrictToWorkspace,
+				readRestrict,
 				cfg.Agents.Defaults.GetMaxMediaSize(),
 				nil,
 				allowReadPaths,

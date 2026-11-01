@@ -1,10 +1,19 @@
 import { getSessionHistory } from "@/api/sessions"
+import { buildWorkspaceFileUrl } from "@/api/workspace"
 import { normalizeUnixTimestamp } from "@/features/chat/state"
 import {
   parseToolCallsValue,
   toolCallsSignature,
 } from "@/features/chat/tool-calls"
 import type { ChatAttachment, ChatMessage } from "@/store/chat"
+
+const uuidPrefixRegex = /^[0-9a-fA-F-]{8,37}_/
+
+export function cleanAttachmentFilename(filename?: string): string {
+  if (!filename) return ""
+  const base = filename.split(/[/\\]/).pop() || filename
+  return base.replace(uuidPrefixRegex, "")
+}
 
 function toChatAttachments({
   media,
@@ -13,21 +22,30 @@ function toChatAttachments({
   media?: string[]
   attachments?: {
     type?: "image" | "audio" | "video" | "file"
-    url: string
+    url?: string
     filename?: string
     content_type?: string
+    path?: string
+    size?: number
   }[]
 }): ChatAttachment[] | undefined {
   const normalizedAttachments = attachments
-    ?.filter((attachment) => attachment.url)
+    ?.filter((attachment) => attachment.url || attachment.path)
     .map(
-      (attachment) =>
-        ({
-          type: attachment.type ?? "file",
-          url: attachment.url,
-          filename: attachment.filename,
+      (attachment) => {
+        const path = attachment.path
+        const url = attachment.url || (path ? buildWorkspaceFileUrl(path) : "")
+        const rawFilename = attachment.filename || (path ? path.split(/[/\\]/).pop() : "file") || "file"
+        const filename = cleanAttachmentFilename(rawFilename)
+        return {
+          type: (attachment.type as "image" | "audio" | "video" | "file") ?? "file",
+          url,
+          filename,
           contentType: attachment.content_type,
-        }) satisfies ChatAttachment,
+          path,
+          size: attachment.size,
+        } satisfies ChatAttachment
+      },
     )
 
   const legacyMediaAttachments = (media ?? [])
@@ -43,22 +61,49 @@ export async function loadSessionMessages(
   sessionId: string,
 ): Promise<ChatMessage[]> {
   const detail = await getSessionHistory(sessionId)
-  return detail.messages.map((message, index) => ({
-    id: `hist-${index}-${Date.now()}`,
-    role: message.role,
-    content: message.content,
-    kind: message.role === "assistant" ? (message.kind ?? "normal") : undefined,
-    modelName: message.model_name,
-    toolCalls:
-      message.role === "assistant"
-        ? parseToolCallsValue(message.tool_calls)
-        : undefined,
-    attachments: toChatAttachments({
+  return detail.messages.map((message, index) => {
+    let content = message.content
+    let attachments = toChatAttachments({
       media: message.media,
       attachments: message.attachments,
-    }),
-    timestamp: message.created_at ?? detail.updated,
-  }))
+    })
+
+    if (message.role === "user" && (!attachments || attachments.length === 0)) {
+      const fileTagRegex = /(?:^|\s)(?:[^\s\r\n]+ )?\[(file|image):([^\]]+)\]/g
+      const extracted: ChatAttachment[] = []
+      let match: RegExpExecArray | null
+      while ((match = fileTagRegex.exec(content)) !== null) {
+        const tagType = match[1] === "image" ? ("image" as const) : ("file" as const)
+        const filePath = match[2]
+        const filename = cleanAttachmentFilename(filePath)
+        extracted.push({
+          type: tagType,
+          filename,
+          path: filePath,
+          url: buildWorkspaceFileUrl(filePath),
+        })
+      }
+      if (extracted.length > 0) {
+        attachments = extracted
+      }
+    }
+
+    content = content.replace(/(?:\r?\n)?[^\r\n]*\[(?:file|image):[^\]]+\]/g, "").trim()
+
+    return {
+      id: `hist-${index}-${Date.now()}`,
+      role: message.role,
+      content,
+      kind: message.role === "assistant" ? (message.kind ?? "normal") : undefined,
+      modelName: message.model_name,
+      toolCalls:
+        message.role === "assistant"
+          ? parseToolCallsValue(message.tool_calls)
+          : undefined,
+      attachments,
+      timestamp: message.created_at ?? detail.updated,
+    }
+  })
 }
 
 function normalizeMessageTimestamp(timestamp: number | string): string {

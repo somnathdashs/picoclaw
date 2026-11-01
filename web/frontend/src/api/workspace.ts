@@ -5,6 +5,7 @@ export interface WorkspaceUploadFileItem {
   path: string
   size: number
   ref?: string
+  url?: string
 }
 
 export interface WorkspaceUploadResponse {
@@ -33,4 +34,19 @@ export async function uploadToWorkspace(file: File): Promise<WorkspaceUploadFile
   }
 
   return data.files[0]
+}
+
+export function encodeFilePath(path: string): string {
+  try {
+    return btoa(unescape(encodeURIComponent(path)))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "")
+  } catch {
+    return path
+  }
+}
+
+export function buildWorkspaceFileUrl(path: string): string {
+  return `/api/workspace/file?path=${encodeURIComponent(encodeFilePath(path))}`
 }

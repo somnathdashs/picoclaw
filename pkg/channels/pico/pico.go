@@ -23,6 +23,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/identity"
 	"github.com/sipeed/picoclaw/pkg/logger"
+	pkgmedia "github.com/sipeed/picoclaw/pkg/media"
 	"github.com/sipeed/picoclaw/pkg/utils"
 )
 
@@ -1248,6 +1249,42 @@ func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	if bhRaw, exists := msg.Payload["branch_history"]; exists && bhRaw != nil {
 		if bhBytes, err := json.Marshal(bhRaw); err == nil && len(bhBytes) >= 2 {
 			metadata["branch_history"] = string(bhBytes)
+		}
+	}
+	if attRaw, exists := msg.Payload["attachments"]; exists && attRaw != nil {
+		if attList, ok := attRaw.([]any); ok {
+			store := c.GetMediaStore()
+			for _, item := range attList {
+				if m, ok := item.(map[string]any); ok {
+					filePath, _ := m["path"].(string)
+					fileRef, _ := m["ref"].(string)
+					fileName, _ := m["filename"].(string)
+					contentType, _ := m["content_type"].(string)
+					if fileRef != "" && strings.HasPrefix(fileRef, "media://") {
+						media = append(media, fileRef)
+					} else if filePath != "" {
+						if store != nil {
+							scope := channels.BuildMediaScope("pico", chatID, msg.ID)
+							if r, err := store.Store(filePath, pkgmedia.MediaMeta{
+								Filename:      fileName,
+								ContentType:   contentType,
+								Source:        "pico",
+								CleanupPolicy: pkgmedia.CleanupPolicyDeleteOnCleanup,
+							}, scope); err == nil {
+								m["ref"] = r
+								media = append(media, r)
+								continue
+							}
+						}
+						media = append(media, filePath)
+					}
+				}
+			}
+			if attBytes, err := json.Marshal(attList); err == nil && len(attBytes) >= 2 {
+				metadata["attachments"] = string(attBytes)
+			}
+		} else if attBytes, err := json.Marshal(attRaw); err == nil && len(attBytes) >= 2 {
+			metadata["attachments"] = string(attBytes)
 		}
 	}
 

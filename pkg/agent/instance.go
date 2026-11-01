@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -171,6 +172,7 @@ func NewAgentInstance(
 			mcpDiscoveryActive && cfg.Tools.MCP.Discovery.UseBM25,
 			mcpDiscoveryActive && cfg.Tools.MCP.Discovery.UseRegex,
 		).
+		WithWorkspaceRestrictions(restrict, defaults.AllowReadOutsideWorkspace).
 		WithSplitOnMarker(cfg.Agents.Defaults.SplitOnMarker)
 
 	agentID := routing.DefaultAgentID
@@ -664,19 +666,38 @@ func buildAllowReadPatterns(cfg *config.Config) []*regexp.Regexp {
 	}
 
 	compiled := compilePatterns(configured)
-	mediaDirPattern := regexp.MustCompile(mediaTempDirPattern())
-	for _, pattern := range compiled {
-		if pattern.String() == mediaDirPattern.String() {
-			return compiled
+	if cfg != nil && cfg.Agents.Defaults.AllowReadOutsideWorkspace {
+		compiled = append(compiled, regexp.MustCompile(".*"))
+		return compiled
+	}
+	patternsToAdd := []*regexp.Regexp{
+		regexp.MustCompile(mediaTempDirPattern()),
+		regexp.MustCompile(`^/tmp(?:/|$)`),
+	}
+
+	for _, p := range patternsToAdd {
+		found := false
+		for _, existing := range compiled {
+			if existing.String() == p.String() {
+				found = true
+				break
+			}
+		}
+		if !found {
+			compiled = append(compiled, p)
 		}
 	}
 
-	return append(compiled, mediaDirPattern)
+	return compiled
 }
 
 func mediaTempDirPattern() string {
 	sep := regexp.QuoteMeta(string(os.PathSeparator))
-	return "^" + regexp.QuoteMeta(filepath.Clean(media.TempDir())) + "(?:" + sep + "|$)"
+	prefix := ""
+	if runtime.GOOS == "windows" {
+		prefix = "(?i)"
+	}
+	return prefix + "^" + regexp.QuoteMeta(filepath.Clean(media.TempDir())) + "(?:" + sep + "|$)"
 }
 
 // Close releases resources held by the agent's providers and session store.

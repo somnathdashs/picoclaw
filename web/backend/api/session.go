@@ -2,11 +2,14 @@ package api
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -70,6 +73,20 @@ type sessionChatAttachment struct {
 	URL         string `json:"url,omitempty"`
 	Filename    string `json:"filename,omitempty"`
 	ContentType string `json:"content_type,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Size        int64  `json:"size,omitempty"`
+}
+
+var (
+	fileTagPattern    = regexp.MustCompile(`(?i)(?:^|\s)(?:[^\s\r\n]+ )?\[(file|image):([^\]]+)\]`)
+	fileStripPattern  = regexp.MustCompile(`(?m)(?:\r?\n)?[^\r\n]*\[(?:file|image):[^\]]+\]`)
+	uuidPrefixPattern = regexp.MustCompile(`^[0-9a-fA-F-]{8,37}_`)
+	thinkTagPattern   = regexp.MustCompile(`(?s)<think>(.*?)</think>`)
+)
+
+func cleanAttachmentFilename(name string) string {
+	base := filepath.Base(name)
+	return uuidPrefixPattern.ReplaceAllString(base, "")
 }
 
 // legacyPicoSessionPrefix is the legacy key prefix used by older Pico JSON/JSONL
@@ -687,21 +704,20 @@ func sessionTranscriptMessages(
 		}
 	}
 
-	for _, msg := range messages {
-		attachments := sessionAttachments(msg)
-
+	for idx, msg := range messages {
 		switch msg.Role {
 		case "tool":
 			continue
 
 		case "user":
+			content, userAttachments := cleanMessageContentAndExtractAttachments(msg.Content, msg.Attachments, true)
 			chatMsg := sessionChatMessage{
 				Role:        "user",
-				Content:     msg.Content,
+				Content:     content,
 				ModelName:   msg.ModelName,
 				CreatedAt:   msg.CreatedAt,
 				Media:       append([]string(nil), msg.Media...),
-				Attachments: attachments,
+				Attachments: userAttachments,
 			}
 			if sessionChatMessageVisible(chatMsg) {
 				transcript = append(transcript, chatMsg)
@@ -726,9 +742,7 @@ func sessionTranscriptMessages(
 			)
 			visibleToolMessages := visibleAssistantToolMessages(msg.ToolCalls, msg.ModelName, msg.CreatedAt)
 
-			// Pico web chat can persist both visible `message` tool output and a
-			// later plain assistant reply in the same turn. Hide only the fixed
-			// internal summary that marks handled tool delivery.
+			attachments := sessionAttachments(msg)
 			content := msg.Content
 			if assistantMessageInternalOnly(msg) {
 				if len(attachments) == 0 {
@@ -744,6 +758,44 @@ func sessionTranscriptMessages(
 			}
 			if hasToolCallsMsg && utils.ToolCallExplanationDuplicatesContent(content, msg.ToolCalls) {
 				content = ""
+			}
+
+			if strings.TrimSpace(msg.ReasoningContent) != "" &&
+				strings.TrimSpace(content) == strings.TrimSpace(msg.ReasoningContent) {
+				content = ""
+			}
+
+			if thinkMatches := thinkTagPattern.FindStringSubmatch(content); len(thinkMatches) > 1 {
+				if includeThoughts && strings.TrimSpace(thinkMatches[1]) != "" {
+					transcript = append(transcript, sessionChatMessage{
+						Role:      "assistant",
+						Content:   strings.TrimSpace(thinkMatches[1]),
+						Kind:      "thought",
+						ModelName: msg.ModelName,
+						CreatedAt: msg.CreatedAt,
+					})
+				}
+				content = strings.TrimSpace(thinkTagPattern.ReplaceAllString(content, ""))
+			}
+
+			isIntermediate := isIntermediateAssistantThought(messages, idx)
+			if isIntermediate {
+				if includeThoughts && strings.TrimSpace(content) != "" {
+					transcript = append(transcript, sessionChatMessage{
+						Role:      "assistant",
+						Content:   content,
+						Kind:      "thought",
+						ModelName: msg.ModelName,
+						CreatedAt: msg.CreatedAt,
+					})
+				}
+				if hasToolCallsMsg {
+					transcript = append(transcript, toolCallsMsg)
+				}
+				if len(visibleToolMessages) > 0 {
+					transcript = append(transcript, visibleToolMessages...)
+				}
+				continue
 			}
 
 			chatMsg := sessionChatMessage{
@@ -777,6 +829,18 @@ func sessionTranscriptMessages(
 	return filterSessionChatMessages(transcript)
 }
 
+func isIntermediateAssistantThought(messages []providers.Message, index int) bool {
+	for i := index + 1; i < len(messages); i++ {
+		if messages[i].Role == "user" {
+			return false
+		}
+		if messages[i].Role == "assistant" {
+			return true
+		}
+	}
+	return false
+}
+
 func filterSessionChatMessages(messages []sessionChatMessage) []sessionChatMessage {
 	filtered := messages[:0]
 	for _, msg := range messages {
@@ -789,12 +853,14 @@ func filterSessionChatMessages(messages []sessionChatMessage) []sessionChatMessa
 }
 
 func sessionAttachments(msg providers.Message) []sessionChatAttachment {
-	if len(msg.Attachments) == 0 {
-		return nil
-	}
+	_, atts := cleanMessageContentAndExtractAttachments(msg.Content, msg.Attachments, msg.Role == "user")
+	return atts
+}
 
-	attachments := make([]sessionChatAttachment, 0, len(msg.Attachments))
-	for _, attachment := range msg.Attachments {
+func cleanMessageContentAndExtractAttachments(content string, explicitAttachments []providers.Attachment, extractFromContent bool) (string, []sessionChatAttachment) {
+	var attachments []sessionChatAttachment
+
+	for _, attachment := range explicitAttachments {
 		urlValue, ok := sessionAttachmentURL(attachment)
 		if !ok {
 			continue
@@ -803,23 +869,80 @@ func sessionAttachments(msg providers.Message) []sessionChatAttachment {
 		if attachmentType == "" {
 			attachmentType = sessionAttachmentType(attachment)
 		}
+		filename := cleanAttachmentFilename(strings.TrimSpace(attachment.Filename))
+		if filename == "" {
+			filename = cleanAttachmentFilename(urlValue)
+		}
+		contentType := strings.TrimSpace(attachment.ContentType)
+		if contentType == "" {
+			contentType = mime.TypeByExtension(filepath.Ext(filename))
+		}
+		path := strings.TrimSpace(attachment.Path)
+		if path == "" {
+			path = strings.TrimSpace(attachment.Ref)
+		}
+		if path == "" && !strings.HasPrefix(attachment.URL, "/api/") && !strings.HasPrefix(attachment.URL, "http") && !strings.HasPrefix(attachment.URL, "data:") {
+			path = attachment.URL
+		}
 		attachments = append(attachments, sessionChatAttachment{
 			Type:        attachmentType,
 			URL:         urlValue,
-			Filename:    strings.TrimSpace(attachment.Filename),
-			ContentType: strings.TrimSpace(attachment.ContentType),
+			Filename:    filename,
+			ContentType: contentType,
+			Path:        path,
 		})
 	}
 
-	if len(attachments) == 0 {
-		return nil
+	if extractFromContent && len(attachments) == 0 && (strings.Contains(content, "[file:") || strings.Contains(content, "[image:")) {
+		matches := fileTagPattern.FindAllStringSubmatch(content, -1)
+		for _, m := range matches {
+			if len(m) < 3 {
+				continue
+			}
+			tagKind := strings.ToLower(m[1])
+			targetPath := strings.TrimSpace(m[2])
+			if targetPath == "" {
+				continue
+			}
+			filename := cleanAttachmentFilename(targetPath)
+			attType := "file"
+			if tagKind == "image" || sessionAttachmentType(providers.Attachment{Filename: filename}) == "image" {
+				attType = "image"
+			}
+			var urlValue string
+			if strings.HasPrefix(targetPath, "/api/") || strings.HasPrefix(targetPath, "http://") || strings.HasPrefix(targetPath, "https://") || strings.HasPrefix(targetPath, "data:") {
+				urlValue = targetPath
+			} else {
+				urlValue = "/api/workspace/file?path=" + base64.RawURLEncoding.EncodeToString([]byte(targetPath))
+			}
+			attachments = append(attachments, sessionChatAttachment{
+				Type:        attType,
+				URL:         urlValue,
+				Filename:    filename,
+				ContentType: mime.TypeByExtension(filepath.Ext(filename)),
+				Path:        targetPath,
+			})
+		}
 	}
-	return attachments
+
+	cleanContent := fileStripPattern.ReplaceAllString(content, "")
+	cleanContent = strings.TrimSpace(cleanContent)
+
+	return cleanContent, attachments
 }
 
 func sessionAttachmentURL(attachment providers.Attachment) (string, bool) {
-	if rawURL := strings.TrimSpace(attachment.URL); rawURL != "" {
+	rawURL := strings.TrimSpace(attachment.URL)
+	if rawURL != "" {
+		if !strings.HasPrefix(rawURL, "/api/") && !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") && !strings.HasPrefix(rawURL, "data:") {
+			return "/api/workspace/file?path=" + base64.RawURLEncoding.EncodeToString([]byte(rawURL)), true
+		}
 		return rawURL, true
+	}
+
+	path := strings.TrimSpace(attachment.Path)
+	if path != "" {
+		return "/api/workspace/file?path=" + base64.RawURLEncoding.EncodeToString([]byte(path)), true
 	}
 
 	ref := strings.TrimSpace(attachment.Ref)
@@ -827,10 +950,10 @@ func sessionAttachmentURL(attachment providers.Attachment) (string, bool) {
 		return "", false
 	}
 	if strings.HasPrefix(ref, "media://") {
-		// Persisted session history must only expose durable attachment locations.
-		// media:// refs depend on the live in-memory MediaStore and may stop
-		// resolving after a restart or cleanup, so omit them from reopened history.
 		return "", false
+	}
+	if !strings.HasPrefix(ref, "/api/") && !strings.HasPrefix(ref, "http://") && !strings.HasPrefix(ref, "https://") && !strings.HasPrefix(ref, "data:") {
+		return "/api/workspace/file?path=" + base64.RawURLEncoding.EncodeToString([]byte(ref)), true
 	}
 	return ref, true
 }
@@ -871,9 +994,6 @@ func assistantMessageInternalOnly(msg providers.Message) bool {
 func assistantThoughtMessage(msg providers.Message) (sessionChatMessage, bool) {
 	reasoning := strings.TrimSpace(msg.ReasoningContent)
 	if reasoning == "" {
-		return sessionChatMessage{}, false
-	}
-	if reasoning == strings.TrimSpace(msg.Content) {
 		return sessionChatMessage{}, false
 	}
 	return sessionChatMessage{

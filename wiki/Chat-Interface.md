@@ -120,7 +120,8 @@ The chat box features a versatile popup menu for adding media and managing model
 - **Animated Popup Above Chatbox**:
   - Pops up smoothly directly above the chat box with slide and fade animation.
   - **Upload to workspace**: Directly upload any file into the agent's workspace directory. Uploaded files are automatically linked to the user's message using standard `[file:<filename>]` channel tags, making them immediately accessible to agent tools like reading, editing, and analysis.
-  - **Capture image**: Opens a full live camera viewfinder directly in the app with snapshot preview, retake, photo confirmation, and camera switching.
+  - **Capture image**: On Android devices, tapping the camera button launches the native Android system camera directly. On desktop and other platforms, it opens a live browser viewfinder with snapshot preview, retake, and photo confirmation.
+  - **Clean Tooltip Experience**: Attachment button tooltips only show when explicitly hovered over, keeping the interface uncluttered upon opening the popup.
   - **Pick image**: Quick access to browse and select images from your device library or files.
 - **Thinking Slider**:
   - Located directly inside the `+` popup for the currently active AI model.
@@ -161,4 +162,31 @@ Quickly reference and invoke installed agent skills directly from the chat box:
   - Commands (`/<cmd>`) and skills (`#<skill>`) remain visually distinct from each other and from regular query text.
 - **Cross-Platform Responsive**:
   - Adapts to small watch viewports, mobile screens, tablets, desktops, and TV interfaces with remote control navigation.
+
+---
+
+### 14. File Preview Side Panel & Upload Experience
+
+PicoClaw provides an integrated slide-over preview panel to inspect files and attachments without leaving the chat:
+
+- **Click-to-Preview**:
+  - Click on any file chip, document tag, or media thumbnail in user messages, assistant responses, or composer drafts to open the preview panel on the right side.
+- **Full-Bleed View Area**:
+  - The preview area fills the entire panel below the top header with zero wasted outer padding. Download and close buttons are integrated directly into the clean top bar.
+- **Resizable on Large Screens**:
+  - On desktop and tablet viewports, you can drag the left border handle horizontally to expand or shrink the panel to your preferred width. On mobile screens, it opens as a focused full-width overlay. Both the File Preview Panel and Custom Rules Panel support this smooth resizing.
+- **Multi-Format Previews**:
+  - **PDF Documents**: Clean, borderless embedded PDF viewer.
+  - **Word Documents (`.docx`, `.doc`)**: Clean document rendering formatted directly in-browser.
+  - **Excel Spreadsheets (`.xlsx`, `.xls`, `.csv`, `.tsv`)**: Interactive multi-sheet workbook viewer with sheet tabs, row filtering search, and numbered tables.
+  - **SVG Graphics**: Dedicated dual-view tabs with visual **Preview** and formatted **SVG Code** tabs.
+  - **Source Code**: Full syntax highlighting with official programming language colors, sticky line numbers, line wrap toggle, and one-click copy.
+  - **Markdown**: Formatted render tab with toggle to inspect raw Markdown code.
+  - **Images, Audio & Video**: Native media playback with responsive scaling.
+- **Centered Fallback for Unsupported Files**:
+  - For formats without in-browser rendering (e.g. binaries, archives, CAD, proprietary data), the panel displays a centered view with the file extension logo badge, file name, formatted `(size)` in parentheses, and a direct download button.
+- **Upload Progress in Composer**:
+  - While uploading files in the chat box, an animated circular progress indicator is shown in place of the close (`✕`) button. Once the upload finishes successfully, the cross icon appears so you can remove the attachment if desired. If an upload fails, the item is removed automatically and an error notification is displayed.
+
+
 

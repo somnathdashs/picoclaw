@@ -180,11 +180,17 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 
 	var branchHistory []providers.Message
 	branchHistoryProvided := false
+	var inboundAttachments []providers.Attachment
 	if msg.Context.Raw != nil {
 		if rawBH, ok := msg.Context.Raw["branch_history"]; ok && strings.TrimSpace(rawBH) != "" {
 			branchHistoryProvided = true
 			if err := json.Unmarshal([]byte(rawBH), &branchHistory); err != nil {
 				logger.WarnCF("agent", "Failed to parse branch_history from inbound context", map[string]any{"error": err.Error()})
+			}
+		}
+		if rawAtt, ok := msg.Context.Raw["attachments"]; ok && strings.TrimSpace(rawAtt) != "" {
+			if err := json.Unmarshal([]byte(rawAtt), &inboundAttachments); err != nil {
+				logger.WarnCF("agent", "Failed to parse attachments from inbound context", map[string]any{"error": err.Error()})
 			}
 		}
 	}
@@ -198,6 +204,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 			SessionScope:   session.CloneScope(&allocation.Scope),
 			UserMessage:    msg.Content,
 			Media:          append([]string(nil), msg.Media...),
+			Attachments:    inboundAttachments,
 		},
 		BranchHistory:           branchHistory,
 		BranchHistoryProvided:   branchHistoryProvided,

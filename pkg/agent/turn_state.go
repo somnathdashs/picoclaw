@@ -211,6 +211,7 @@ type turnState struct {
 	workspace   string
 	userMessage string
 	media       []string
+	attachments []providers.Attachment
 
 	phase        TurnPhase
 	iteration    int
@@ -278,6 +279,7 @@ func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScop
 		workspace:    agent.Workspace,
 		userMessage:  opts.Dispatch.UserMessage,
 		media:        append([]string(nil), opts.Dispatch.Media...),
+		attachments:  append([]providers.Attachment(nil), opts.Dispatch.Attachments...),
 		phase:        TurnPhaseSetup,
 		startedAt:    time.Now(),
 	}

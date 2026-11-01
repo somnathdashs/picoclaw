@@ -773,6 +773,8 @@
       "workspace_hint": "Základní adresář pro operace s agentovými soubory.",
       "restrict_workspace": "Omezit na workspace",
       "restrict_workspace_hint": "Povolit operace se soubory pouze uvnitř workspace.",
+      "allow_read_outside_workspace": "Povolit čtení mimo workspace",
+      "allow_read_outside_workspace_hint": "Povolit čtení souborů mimo workspace se zachováním omezení pro zápis.",
       "split_on_marker": "Chatty režim",
       "split_on_marker_hint": "Rozděluje dlouhé zprávy na krátké jako při skutečném lidském chatu.",
       "tool_feedback_enabled": "Tool Feedback",

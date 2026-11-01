@@ -17,3 +17,8 @@ func validatePathWithAllowPaths(
 func isAllowedPath(path string, patterns []*regexp.Regexp) bool {
 	return fstools.IsAllowedPath(path, patterns)
 }
+
+func isTempOrMediaPath(path string) bool {
+	return fstools.IsTempOrMediaPath(path)
+}
+
