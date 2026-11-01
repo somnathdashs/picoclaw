@@ -111,7 +111,6 @@ export function reducePicoMessage(
         parseAssistantMessageCreateState(payload)
       const attachments = parseAttachments(payload)
       const contextUsage = parseContextUsage(payload)
-      const isPlaceholder = payload.placeholder === true
       const modelName = parseModelName(payload)
       const timestamp =
         message.timestamp !== undefined &&
@@ -133,11 +132,7 @@ export function reducePicoMessage(
         },
       ])
 
-      const isTyping =
-        !isPlaceholder && (kind === "normal" || message.type === "media.create")
-          ? false
-          : prevIsTyping
-
+      const isTyping = prevIsTyping
       return { messages: nextMessages, isTyping, contextUsage }
     }
 

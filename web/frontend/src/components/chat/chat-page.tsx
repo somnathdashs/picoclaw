@@ -149,7 +149,7 @@ type GroupedChatItem = GroupedWorkItem | GroupedMessageItem
 // Group consecutive work items (thoughts + tools) into a single unified widget
 function groupChatMessages(
   messages: ChatMessage[],
-  isTyping: boolean,
+  isTurnActive: boolean,
 ): GroupedChatItem[] {
   const result: GroupedChatItem[] = []
   let currentWork: {
@@ -211,8 +211,8 @@ function groupChatMessages(
     }
   }
 
-  // Current turn is active only while typing is ongoing
-  const isLatestTurnActive = Boolean(isTyping && lastUserIndex !== -1)
+  // Current turn is active while the turn is active
+  const isLatestTurnActive = Boolean(isTurnActive && lastUserIndex !== -1)
 
   let currentTurnUserMessage: ChatMessage | null = null
 
@@ -305,13 +305,42 @@ function groupChatMessages(
     }
     flushWork()
 
-    result.push({
-      type: "message",
-      id: msg.id,
-      message: msg,
-      isStreaming: isTyping && isLastMessage,
-      turnUserMessage: currentTurnUserMessage ?? undefined,
-    })
+    const SPLIT_MARKER = "<|[SPLIT]|>"
+    if (msg.role === "assistant" && msg.content.includes(SPLIT_MARKER)) {
+      const rawParts = msg.content.split(SPLIT_MARKER)
+      const parts = rawParts.map((p) => p.trim())
+      for (let pIdx = 0; pIdx < parts.length; pIdx++) {
+        const isLastPart = pIdx === parts.length - 1
+        const partText = isTurnStreaming && isLastMessage && isLastPart
+          ? parts[pIdx].replace(/(?:<|<\||<\|\[|<\|\[S|<\|\[SP|<\|\[SPL|<\|\[SPLI|<\|\[SPLIT|<\|\[SPLIT\]|<\|\[SPLIT\]\|)$/, "")
+          : parts[pIdx]
+        if (!partText && (!isTurnStreaming || !isLastPart)) {
+          continue
+        }
+        result.push({
+          type: "message",
+          id: pIdx === 0 ? msg.id : `${msg.id}-split-${pIdx}`,
+          message: {
+            ...msg,
+            id: pIdx === 0 ? msg.id : `${msg.id}-split-${pIdx}`,
+            content: partText,
+          },
+          isStreaming: isTurnStreaming && isLastMessage && isLastPart,
+          turnUserMessage: currentTurnUserMessage ?? undefined,
+        })
+      }
+    } else {
+      const cleanContent = isTurnStreaming && isLastMessage
+        ? msg.content.replace(/(?:<|<\||<\|\[|<\|\[S|<\|\[SP|<\|\[SPL|<\|\[SPLI|<\|\[SPLIT|<\|\[SPLIT\]|<\|\[SPLIT\]\|)$/, "")
+        : msg.content
+      result.push({
+        type: "message",
+        id: msg.id,
+        message: cleanContent === msg.content ? msg : { ...msg, content: cleanContent },
+        isStreaming: isTurnStreaming && isLastMessage,
+        turnUserMessage: currentTurnUserMessage ?? undefined,
+      })
+    }
   }
 
   flushWork()
@@ -399,11 +428,6 @@ export function ChatPage() {
     editTurn,
   } = usePicoChat()
 
-  const groupedChatItems = useMemo(
-    () => groupChatMessages(messages, isTyping),
-    [messages, isTyping],
-  )
-
   const isAgentWorking = useMemo(() => {
     if (connectionState !== "connected") return false
     if (isTyping) return true
@@ -411,8 +435,6 @@ export function ChatPage() {
 
     const lastMsg = messages[messages.length - 1]
     if (lastMsg.role === "user") return true
-
-    if (groupedChatItems.some((item) => item.isStreaming)) return true
 
     let lastUserIdx = -1
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -450,7 +472,12 @@ export function ChatPage() {
     }
 
     return false
-  }, [connectionState, isTyping, messages, groupedChatItems])
+  }, [connectionState, isTyping, messages])
+
+  const groupedChatItems = useMemo(
+    () => groupChatMessages(messages, isAgentWorking),
+    [messages, isAgentWorking],
+  )
 
   const prevWorkingRef = useRef(false)
   const lastSpokenMessageIdRef = useRef<string | null>(null)
@@ -1153,7 +1180,7 @@ export function ChatPage() {
             return (
               <div
                 key={item.id}
-                className={`w-full ${isFollowUpAssistant ? "-mt-5" : ""}`}
+                className={`w-full ${isFollowUpAssistant ? "-mt-2" : ""}`}
               >
                 {message.role === "assistant" ? (
                   <AssistantMessage

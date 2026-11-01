@@ -2,7 +2,7 @@ import { getDefaultStore } from "jotai"
 import { toast } from "sonner"
 
 import { deleteSession } from "@/api/sessions"
-import { cleanAttachmentFilename, loadSessionMessages } from "@/features/chat/history"
+import { cleanAttachmentFilename, loadSessionMessages, mergeHistoryMessages } from "@/features/chat/history"
 import {
   formatBranchHistory,
   reconstructBranchesFromHistory,
@@ -18,6 +18,7 @@ import {
   generateSessionId,
   generateTemporarySessionId,
   readStoredSessionId,
+  writeStoredSessionId,
 } from "@/features/chat/state"
 import { invalidateSocket } from "@/features/chat/websocket"
 import i18n from "@/i18n"
@@ -100,6 +101,7 @@ function needsActiveSessionHydration(): boolean {
 
 function setActiveSessionId(sessionId: string) {
   activeSessionIdRef = sessionId
+  writeStoredSessionId(sessionId)
   updateChatStore({ activeSessionId: sessionId })
 }
 
@@ -263,6 +265,17 @@ export async function hydrateActiveSession() {
 
       const reconstructed = reconstructBranchesFromHistory(historyMessages)
       sessionMessagesMap.set(storedSessionId, reconstructed)
+
+      // If current state already has messages, merge with history so in-flight messages are preserved
+      if (currentState.messages.length > 0) {
+        const merged = mergeHistoryMessages(reconstructed, currentState.messages)
+        updateChatStore({
+          messages: merged,
+          hasHydratedActiveSession: true,
+        })
+        return
+      }
+
       updateChatStore({
         messages: reconstructed,
         isTyping: false,
@@ -277,6 +290,12 @@ export async function hydrateActiveSession() {
 
       const currentState = getChatState()
       if (currentState.activeSessionId !== storedSessionId) return
+
+      // Don't wipe in-flight messages if history fails to load
+      if (currentState.messages.length > 0) {
+        updateChatStore({ hasHydratedActiveSession: true })
+        return
+      }
 
       deleteLocalSession(storedSessionId)
       clearStoredSessionId()
@@ -776,14 +795,10 @@ export async function switchChatSession(sessionId: string) {
   }
 
   try {
-    let targetMessages: ChatMessage[] = []
-    if (sessionMessagesMap.has(sessionId)) {
-      targetMessages = sessionMessagesMap.get(sessionId)!
-    } else {
-      const historyMessages = await loadSessionMessages(sessionId)
-      targetMessages = reconstructBranchesFromHistory(historyMessages)
-      sessionMessagesMap.set(sessionId, targetMessages)
-    }
+    // Always fetch session chat fresh from Go DB (like main branch)
+    const historyMessages = await loadSessionMessages(sessionId)
+    const targetMessages = reconstructBranchesFromHistory(historyMessages)
+    sessionMessagesMap.set(sessionId, targetMessages)
     const targetIsTyping = sessionTypingMap.get(sessionId) ?? false
 
     setActiveSessionId(sessionId)
@@ -913,10 +928,46 @@ export async function endTemporaryChatSession(tempSessionId?: string) {
 }
 
 
-let activeSessionPoller: number | null = null
+// Sync active session history directly from backend
+export async function syncActiveSessionFromBackend(targetSessionId?: string) {
+  const sessionId = targetSessionId || activeSessionIdRef
+  if (!sessionId || sessionId.startsWith("temp-")) return
+  try {
+    const historyMessages = await loadSessionMessages(sessionId)
+    const currentState = getChatState()
+    if (currentState.activeSessionId !== sessionId || !historyMessages || historyMessages.length === 0) {
+      return
+    }
 
-// Removed: syncActiveSessionIfUpdated poller — backend is the source of truth.
-// Messages load fresh from the API on every session switch.
+    const reconstructed = reconstructBranchesFromHistory(historyMessages)
+    const lastMsg = historyMessages[historyMessages.length - 1]
+    const isAssistantFinished =
+      lastMsg?.role === "assistant" &&
+      lastMsg.kind !== "tool_calls" &&
+      Boolean(lastMsg.content?.trim())
+
+    // If current state has messages, merge to avoid losing newly sent user inputs
+    const nextMessages =
+      currentState.messages.length > 0
+        ? mergeHistoryMessages(reconstructed, currentState.messages)
+        : reconstructed
+
+    sessionMessagesMap.set(sessionId, nextMessages)
+    updateChatStore({
+      messages: nextMessages,
+      ...(isAssistantFinished ? { isTyping: false } : {}),
+    })
+    if (isAssistantFinished) {
+      sessionTypingMap.set(sessionId, false)
+    }
+  } catch {
+    // Ignore if session not yet created on backend
+  }
+}
+
+let activeSessionPoller: number | null = null
+let appForegroundHandler: (() => void) | null = null
+
 export let lastActiveSessionMessageCount = 0
 
 export function initializeChatStore() {
@@ -951,6 +1002,25 @@ export function initializeChatStore() {
 
   unsubscribeGateway = store.sub(gatewayAtom, syncConnectionWithGateway)
 
+  // Resync on mobile tab resume or window focus
+  appForegroundHandler = () => {
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      return
+    }
+    if (store.get(gatewayAtom).status === "running") {
+      const activeSock = sessionSockets.get(activeSessionIdRef)
+      if (!activeSock || activeSock.readyState !== WebSocket.OPEN) {
+        shouldMaintainConnection = true
+        connectSessionSocket(activeSessionIdRef)
+      }
+      void syncActiveSessionFromBackend(activeSessionIdRef)
+    }
+  }
+
+  window.addEventListener("focus", appForegroundHandler)
+  window.addEventListener("pageshow", appForegroundHandler)
+  document.addEventListener("visibilitychange", appForegroundHandler)
+
   if (!readStoredSessionId()) {
     updateChatStore({ hasHydratedActiveSession: true })
     syncConnectionWithGateway(true)
@@ -966,6 +1036,12 @@ export function initializeChatStore() {
 }
 
 export function teardownChatStore() {
+  if (appForegroundHandler) {
+    window.removeEventListener("focus", appForegroundHandler)
+    window.removeEventListener("pageshow", appForegroundHandler)
+    document.removeEventListener("visibilitychange", appForegroundHandler)
+    appForegroundHandler = null
+  }
   if (activeSessionPoller !== null) {
     window.clearInterval(activeSessionPoller)
     activeSessionPoller = null

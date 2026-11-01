@@ -202,6 +202,160 @@ function getToolTargetSnippet(args: Record<string, unknown> | null): string | nu
   return null
 }
 
+function countLines(text: unknown): number {
+  if (typeof text !== "string" || text.length === 0) return 0
+  const normalized = text.replace(/\r\n/g, "\n").replace(/\n$/, "")
+  if (normalized.length === 0) return 0
+  return normalized.split("\n").length
+}
+
+function isFileModifyingTool(toolName?: string): boolean {
+  if (!toolName) return false
+  const clean = toolName.toLowerCase().replace(/[-_]/g, "")
+  if (
+    clean.includes("command") ||
+    clean.includes("bash") ||
+    clean.includes("shell") ||
+    clean.includes("exec") ||
+    clean.includes("terminal") ||
+    clean.includes("read") ||
+    clean.includes("view") ||
+    clean.includes("grep") ||
+    clean.includes("list") ||
+    clean.includes("search") ||
+    clean.includes("fetch") ||
+    clean.includes("question") ||
+    clean.includes("session") ||
+    clean.includes("message") ||
+    clean.includes("prompt") ||
+    clean.includes("agent")
+  ) {
+    return false
+  }
+
+  return (
+    clean === "editfile" ||
+    clean === "writefile" ||
+    clean === "appendfile" ||
+    clean === "writetofile" ||
+    clean === "replacefilecontent" ||
+    clean === "multireplacefilecontent" ||
+    clean === "fileeditor" ||
+    clean === "strreplaceeditor" ||
+    clean === "applydiff" ||
+    clean === "patchfile" ||
+    clean === "updatefile" ||
+    (clean.includes("file") &&
+      (clean.includes("edit") ||
+        clean.includes("write") ||
+        clean.includes("patch") ||
+        clean.includes("append") ||
+        clean.includes("replace")))
+  )
+}
+
+function extractRawReturnString(toolCall?: ChatToolCall): string {
+  if (!toolCall) return ""
+  const candidates = [
+    toolCall.result,
+    toolCall.output,
+    (toolCall as Record<string, unknown>)?.response,
+    toolCall.content,
+    toolCall.extraContent?.result,
+    toolCall.extraContent?.output,
+  ]
+
+  for (const c of candidates) {
+    if (typeof c === "string") {
+      if (c.trim().startsWith("{") && c.trim().endsWith("}")) {
+        try {
+          const parsed = JSON.parse(c)
+          if (parsed && typeof parsed === "object") {
+            const inner =
+              parsed.for_user ||
+              parsed.forUser ||
+              parsed.diff ||
+              parsed.output ||
+              parsed.result ||
+              parsed.content
+            if (typeof inner === "string" && inner.trim()) {
+              return inner
+            }
+          }
+        } catch {
+          // not JSON, keep as is
+        }
+      }
+      if (c.trim()) return c
+    } else if (c && typeof c === "object") {
+      const obj = c as Record<string, unknown>
+      const inner =
+        obj.for_user ||
+        obj.forUser ||
+        obj.diff ||
+        obj.output ||
+        obj.result ||
+        obj.content
+      if (typeof inner === "string" && inner.trim()) {
+        return inner
+      }
+    }
+  }
+  return ""
+}
+
+function isToolCallError(toolCall?: ChatToolCall, rawReturn?: string): boolean {
+  if (!toolCall) return false
+  const rec = toolCall as Record<string, unknown>
+  if (rec.is_error === true || rec.isError === true) return true
+  const explanation =
+    toolCall.extraContent?.toolFeedbackExplanation?.toLowerCase() ?? ""
+  if (explanation.startsWith("error") || explanation.startsWith("failed")) {
+    return true
+  }
+  if (rawReturn) {
+    const trimmed = rawReturn.trim().toLowerCase()
+    if (
+      trimmed.startsWith("error:") ||
+      trimmed.startsWith("failed:") ||
+      trimmed.startsWith("access denied")
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+function parseUnifiedDiffLines(diffText: string): { added: number; removed: number } {
+  let added = 0
+  let removed = 0
+  const lines = diffText.split(/\r?\n/)
+  let inHunk = false
+
+  for (const line of lines) {
+    if (line.startsWith("```diff")) {
+      continue
+    }
+    if (line.startsWith("```")) {
+      inHunk = false
+      continue
+    }
+    if (line.startsWith("@@")) {
+      inHunk = true
+      continue
+    }
+    if (inHunk) {
+      if (line.startsWith("+") && !line.startsWith("+++")) {
+        added++
+      } else if (line.startsWith("-") && !line.startsWith("---")) {
+        removed++
+      }
+    }
+  }
+
+  return { added, removed }
+}
+
 function extractDiff(
   args: Record<string, unknown> | null,
   toolCall?: ChatToolCall,
@@ -210,103 +364,71 @@ function extractDiff(
   added: number
   removed: number
 } {
-  let added = 0
-  let removed = 0
+  if (!isFileModifyingTool(toolName)) {
+    return { added: 0, removed: 0 }
+  }
 
-  const rawReturn =
-    toolCall?.result ??
-    toolCall?.output ??
-    (toolCall as Record<string, unknown>)?.response ??
-    toolCall?.extraContent?.result ??
-    toolCall?.extraContent?.output ??
-    (toolCall as Record<string, unknown>)?.content
+  const rawReturn = extractRawReturnString(toolCall)
+  if (isToolCallError(toolCall, rawReturn)) {
+    return { added: 0, removed: 0 }
+  }
 
   if (
-    typeof rawReturn === "string" &&
+    rawReturn &&
     (rawReturn.includes("@@") ||
       rawReturn.includes("```diff") ||
       rawReturn.includes("--- a/") ||
       rawReturn.includes("+++ b/"))
   ) {
-    const lines = rawReturn.split("\n")
-    let inDiff = false
-    for (const line of lines) {
-      if (line.startsWith("```diff")) {
-        inDiff = true
-        continue
-      }
-      if (inDiff && line.startsWith("```")) {
-        inDiff = false
-        continue
-      }
-      if (inDiff || rawReturn.includes("@@") || rawReturn.includes("--- a/")) {
-        if (line.startsWith("+") && !line.startsWith("+++")) {
-          added++
-        } else if (line.startsWith("-") && !line.startsWith("---")) {
-          removed++
-        }
-      }
-    }
-    if (added > 0 || removed > 0) {
-      return { added, removed }
+    const parsedDiff = parseUnifiedDiffLines(rawReturn)
+    if (parsedDiff.added > 0 || parsedDiff.removed > 0) {
+      return parsedDiff
     }
   }
 
   if (!args) return { added: 0, removed: 0 }
 
+  let added = 0
+  let removed = 0
+
   if (
-    typeof args.TargetContent === "string" &&
+    typeof args.old_text === "string" ||
+    typeof args.new_text === "string"
+  ) {
+    removed += countLines(args.old_text)
+    added += countLines(args.new_text)
+  }
+
+  if (
+    typeof args.TargetContent === "string" ||
     typeof args.ReplacementContent === "string"
   ) {
-    added += args.ReplacementContent.split("\n").length
-    removed += args.TargetContent.split("\n").length
+    removed += countLines(args.TargetContent)
+    added += countLines(args.ReplacementContent)
   }
 
   if (Array.isArray(args.ReplacementChunks)) {
     for (const chunk of args.ReplacementChunks) {
       if (chunk && typeof chunk === "object") {
         const c = chunk as Record<string, unknown>
-        if (typeof c.TargetContent === "string") {
-          removed += c.TargetContent.split("\n").length
-        }
-        if (typeof c.ReplacementContent === "string") {
-          added += c.ReplacementContent.split("\n").length
-        }
+        removed += countLines(c.TargetContent)
+        added += countLines(c.ReplacementContent)
       }
     }
   }
 
-  if (
-    typeof args.old_text === "string" &&
-    typeof args.new_text === "string"
-  ) {
-    removed += args.old_text.split("\n").length
-    added += args.new_text.split("\n").length
-  }
-
-  const content =
-    typeof args.CodeContent === "string"
-      ? args.CodeContent
-      : typeof args.content === "string"
+  if (added === 0 && removed === 0) {
+    const fileContent =
+      typeof args.content === "string"
         ? args.content
-        : typeof args.code === "string"
-          ? args.code
+        : typeof args.CodeContent === "string"
+          ? args.CodeContent
           : typeof args.append_content === "string"
             ? args.append_content
-            : typeof args.text === "string"
-              ? args.text
-              : null
+            : null
 
-  if (content !== null && added === 0 && removed === 0) {
-    const n = (toolName || "").toLowerCase()
-    if (
-      n.includes("write") ||
-      n.includes("create") ||
-      n.includes("append") ||
-      n.includes("save") ||
-      n.includes("edit")
-    ) {
-      added += content.split("\n").length
+    if (fileContent !== null) {
+      added = countLines(fileContent)
     }
   }
 
@@ -834,8 +956,19 @@ export function WorkedSectionGroup({
     countBadges.push(`+${totalDiff.added} / -${totalDiff.removed}`)
   }
 
+  const [dotsCount, setDotsCount] = useState(1)
+
+  useEffect(() => {
+    if (!isStreaming) return
+    const interval = setInterval(() => {
+      setDotsCount((prev) => (prev >= 4 ? 1 : prev + 1))
+    }, 450)
+    return () => clearInterval(interval)
+  }, [isStreaming])
+
   const durationText = formatWorkDuration(durationMs)
-  const sectionTitle = isStreaming ? "Working…" : `Worked for ${durationText}`
+  const dots = ".".repeat(dotsCount)
+  const sectionTitle = isStreaming ? `Working${dots}` : `Worked for ${durationText}`
 
   return (
     <div className="w-full relative overflow-hidden rounded-xl border border-border/50 bg-card/60 shadow-2xs backdrop-blur-xs">
@@ -968,7 +1101,7 @@ export function AssistantMessage({
   const isSpeakingThis = Boolean(id && speakingMessageId === id)
   const isThought = kind === "thought"
   const isToolCalls = kind === "tool_calls"
-  const hasText = content.trim().length > 0
+  const hasText = content.replace(/<\|\[SPLIT\]\|>/g, "").trim().length > 0
   const hasToolCalls = toolCalls.length > 0
   const imageAttachments = attachments.filter(
     (attachment) => attachment.type === "image",
@@ -1044,18 +1177,43 @@ export function AssistantMessage({
       )}
 
       {hasText && (
-        <div className="w-full space-y-1.5">
+        <div className="w-full space-y-2">
           <div className="relative overflow-hidden text-foreground">
-            <div className="prose dark:prose-invert prose-p:my-2 prose-p:whitespace-pre-wrap prose-pre:my-2 prose-pre:overflow-x-auto prose-pre:rounded-lg prose-pre:border prose-pre:bg-zinc-100 prose-pre:p-0 prose-pre:text-zinc-900 dark:prose-pre:bg-zinc-950 dark:prose-pre:text-zinc-100 max-w-none [overflow-wrap:anywhere] break-words px-1 py-1 text-[15px] leading-relaxed">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeHighlight]}
-                components={{
-                  pre: MarkdownCodeBlock,
-                }}
-              >
-                {content}
-              </ReactMarkdown>
+            <div className="prose dark:prose-invert prose-p:my-2.5 prose-p:whitespace-pre-wrap prose-pre:my-2.5 prose-pre:overflow-x-auto prose-pre:rounded-lg prose-pre:border prose-pre:bg-zinc-100 prose-pre:p-0 prose-pre:text-zinc-900 dark:prose-pre:bg-zinc-950 dark:prose-pre:text-zinc-100 max-w-none [overflow-wrap:anywhere] break-words px-1 py-1 text-[15px] leading-relaxed">
+              {content.includes("<|[SPLIT]|>") ? (
+                <div className="space-y-4">
+                  {content
+                    .split("<|[SPLIT]|>")
+                    .map((chunk) => chunk.trim())
+                    .filter(Boolean)
+                    .map((chunk, cIdx) => (
+                      <div
+                        key={cIdx}
+                        className="first:pt-0 pt-3 border-t border-border/20 first:border-t-0"
+                      >
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeHighlight]}
+                          components={{
+                            pre: MarkdownCodeBlock,
+                          }}
+                        >
+                          {chunk}
+                        </ReactMarkdown>
+                      </div>
+                    ))}
+                </div>
+              ) : (
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeRaw, rehypeSanitize, rehypeHighlight]}
+                  components={{
+                    pre: MarkdownCodeBlock,
+                  }}
+                >
+                  {content}
+                </ReactMarkdown>
+              )}
             </div>
           </div>
 

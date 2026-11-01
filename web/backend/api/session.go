@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sipeed/picoclaw/pkg/channels"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/memory"
 	"github.com/sipeed/picoclaw/pkg/providers"
@@ -814,6 +815,29 @@ func sessionTranscriptMessages(
 					transcript = append(transcript, visibleToolMessages...)
 				}
 				continue
+			}
+
+			if strings.Contains(content, channels.MessageSplitMarker) {
+				chunks := channels.SplitByMarker(content)
+				if len(chunks) > 1 {
+					for _, chunk := range chunks {
+						transcript = append(transcript, sessionChatMessage{
+							Role:        "assistant",
+							Content:     chunk,
+							ModelName:   msg.ModelName,
+							CreatedAt:   msg.CreatedAt,
+							Media:       append([]string(nil), msg.Media...),
+							Attachments: attachments,
+						})
+					}
+					if hasToolCallsMsg {
+						transcript = append(transcript, toolCallsMsg)
+					}
+					if len(visibleToolMessages) > 0 {
+						transcript = append(transcript, visibleToolMessages...)
+					}
+					continue
+				}
 			}
 
 			transcript = append(transcript, chatMsg)
