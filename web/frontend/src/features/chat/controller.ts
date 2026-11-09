@@ -1,9 +1,10 @@
 import { getDefaultStore } from "jotai"
 import { toast } from "sonner"
 
-import { deleteSession } from "@/api/sessions"
+import { deleteSession, saveSessionBranchTurns, switchSessionBranch } from "@/api/sessions"
 import { cleanAttachmentFilename, loadSessionMessages, mergeHistoryMessages } from "@/features/chat/history"
 import {
+  extractBranchTurns,
   formatBranchHistory,
   reconstructBranchesFromHistory,
   syncActiveBranches,
@@ -46,6 +47,15 @@ export function clearSessionBranches(sessionId: string) {
 
 export function clearAllSessionBranches() {
   sessionMessagesMap.clear()
+}
+
+export function syncBranchesToGateway(sessionId: string) {
+  if (!sessionId || sessionId.startsWith("temp-")) return
+  const currentMessages = sessionMessagesMap.get(sessionId) ?? getChatState().messages
+  const turns = extractBranchTurns(syncActiveBranches(currentMessages))
+  if (turns.length > 0) {
+    void saveSessionBranchTurns(sessionId, turns).catch(() => {})
+  }
 }
 
 let msgIdCounter = 0
@@ -155,12 +165,18 @@ export function connectSessionSocket(sessionId: string): WebSocket | null {
         handlePicoMessage(message, sessionId)
         sessionTypingMap.set(sessionId, getChatState().isTyping)
         sessionMessagesMap.set(sessionId, getChatState().messages)
+        if (message.type === "typing.stop") {
+          syncBranchesToGateway(sessionId)
+        }
       } else {
         const cached = sessionMessagesMap.get(sessionId) ?? []
         const wasTyping = sessionTypingMap.get(sessionId) ?? true
         const result = reducePicoMessage(cached, wasTyping, message)
         sessionMessagesMap.set(sessionId, result.messages)
         sessionTypingMap.set(sessionId, result.isTyping)
+        if (message.type === "typing.stop") {
+          syncBranchesToGateway(sessionId)
+        }
         bumpSessionListRevision()
       }
     } catch {
@@ -492,7 +508,15 @@ export function switchChatBranch(
   const state = getChatState()
   if (state.isTyping) return false
 
-  const idx = state.messages.findIndex((m) => m.id === turnRootId)
+  // Search by both the given ID and within branches (handles regenerated turns
+  // where the active user message ID changed after branch creation)
+  let idx = state.messages.findIndex((m) => m.id === turnRootId)
+  if (idx < 0) {
+    // Try to find via any branch root that has this ID stored
+    idx = state.messages.findIndex(
+      (m) => m.branches?.some((b) => b[0]?.id === turnRootId),
+    )
+  }
   if (idx < 0) return false
 
   const rootMsg = state.messages[idx]
@@ -504,37 +528,50 @@ export function switchChatBranch(
     return false
   }
 
-  const branches = rootMsg.branches
   const currentBranchIdx = rootMsg.activeBranchIndex ?? 0
-
-  const currentSnapshot = state.messages.slice(idx)
-  if (currentSnapshot.length > 0) {
-    currentSnapshot[0].activeBranchIndex = currentBranchIdx
-    currentSnapshot[0].branches = branches
-  }
-  branches[currentBranchIdx] = currentSnapshot
-
   if (currentBranchIdx === targetBranchIndex) return true
 
-  const targetBranch = branches[targetBranchIndex]
+  // Save current active branch snapshot with cloned root
+  const rawSnapshot = state.messages.slice(idx)
+  const currentSnapshot: ChatMessage[] = rawSnapshot.length > 0
+    ? [{ ...rawSnapshot[0], activeBranchIndex: currentBranchIdx }, ...rawSnapshot.slice(1)]
+    : []
+
+  const rawBranches = [...rootMsg.branches]
+  rawBranches[currentBranchIdx] = currentSnapshot
+
+  const targetBranch = rawBranches[targetBranchIndex]
   if (!targetBranch || targetBranch.length === 0) return false
 
-  targetBranch[0].branches = branches
-  targetBranch[0].activeBranchIndex = targetBranchIndex
-
-  for (let b = 0; b < branches.length; b++) {
-    if (branches[b][0]) {
-      branches[b][0].branches = branches
-      branches[b][0].activeBranchIndex = b
-      if (rootMsg.branchType) {
-        branches[b][0].branchType = rootMsg.branchType
-      }
+  // Re-link all branch roots immutably
+  const updatedBranches: ChatMessage[][] = []
+  for (let b = 0; b < rawBranches.length; b++) {
+    const branch = rawBranches[b]
+    if (branch && branch[0]) {
+      updatedBranches.push([
+        {
+          ...branch[0],
+          branches: updatedBranches,
+          activeBranchIndex: b,
+          ...(rootMsg.branchType ? { branchType: rootMsg.branchType } : {}),
+        },
+        ...branch.slice(1),
+      ])
+    } else {
+      updatedBranches.push(branch || [])
     }
   }
 
-  const nextMessages = [...state.messages.slice(0, idx), ...targetBranch]
+  const activeBranch = updatedBranches[targetBranchIndex]
+  if (!activeBranch || activeBranch.length === 0) return false
+
+  const nextMessages = [...state.messages.slice(0, idx), ...activeBranch]
   sessionMessagesMap.set(state.activeSessionId, nextMessages)
   updateChatStore({ messages: nextMessages })
+
+  if (state.activeSessionId && !state.activeSessionId.startsWith("temp-")) {
+    void switchSessionBranch(state.activeSessionId, turnRootId, targetBranchIndex).catch(() => {})
+  }
   return true
 }
 
@@ -557,41 +594,46 @@ export function regenerateAssistantTurn(assistantMessageId: string): boolean {
   const userMsg = state.messages[userIdx]
   const currentSnapshot = state.messages.slice(userIdx)
 
-  const branches: ChatMessage[][] = userMsg.branches
+  const existingBranches: ChatMessage[][] = userMsg.branches
     ? [...userMsg.branches]
     : []
-  if (branches.length === 0) {
-    if (currentSnapshot.length > 0) {
-      currentSnapshot[0].activeBranchIndex = 0
-      currentSnapshot[0].branchType = "regeneration"
-    }
-    branches.push(currentSnapshot)
-  } else {
-    const curIdx = userMsg.activeBranchIndex ?? 0
-    if (currentSnapshot.length > 0) {
-      currentSnapshot[0].activeBranchIndex = curIdx
-      currentSnapshot[0].branchType = "regeneration"
-    }
-    branches[curIdx] = currentSnapshot
+  const curIdx = existingBranches.length > 0 ? (userMsg.activeBranchIndex ?? 0) : 0
+
+  // Clone root message to avoid mutating the shared store ref
+  const snapshotRoot: ChatMessage = {
+    ...(currentSnapshot[0] ?? userMsg),
+    activeBranchIndex: curIdx,
+    branchType: "regeneration",
   }
+  const savedSnapshot: ChatMessage[] = currentSnapshot.length > 0
+    ? [snapshotRoot, ...currentSnapshot.slice(1)]
+    : [snapshotRoot]
+
+  const branches: ChatMessage[][] = existingBranches.length === 0
+    ? [savedSnapshot]
+    : existingBranches.map((b, i) => i === curIdx ? savedSnapshot : b)
 
   const newBranchIndex = branches.length
   const newId = `msg-${++msgIdCounter}-${Date.now()}`
-  const newMsg = {
+
+  // Build branches array before creating newMsg so the reference is stable
+  const newMsg: ChatMessage = {
     ...userMsg,
     id: newId,
     timestamp: Date.now(),
     branches,
     activeBranchIndex: newBranchIndex,
-    branchType: "regeneration" as const,
+    branchType: "regeneration",
   }
 
   branches.push([newMsg])
+  // Update all branch roots to share the final branches array
   for (let b = 0; b < branches.length; b++) {
     if (branches[b][0]) {
-      branches[b][0].branches = branches
-      branches[b][0].activeBranchIndex = b
-      branches[b][0].branchType = "regeneration"
+      branches[b] = [
+        { ...branches[b][0], branches, activeBranchIndex: b, branchType: "regeneration" },
+        ...branches[b].slice(1),
+      ]
     }
   }
 
@@ -601,6 +643,13 @@ export function regenerateAssistantTurn(assistantMessageId: string): boolean {
     messages: nextMessages,
     isTyping: true,
   })
+
+  if (state.activeSessionId && !state.activeSessionId.startsWith("temp-")) {
+    const turns = extractBranchTurns(nextMessages)
+    if (turns.length > 0) {
+      void saveSessionBranchTurns(state.activeSessionId, turns).catch(() => {})
+    }
+  }
 
   const socket = getSessionSocket(state.activeSessionId)
   if (!socket || socket.readyState !== WebSocket.OPEN) {
@@ -680,43 +729,44 @@ export function editUserTurn(
   const userMsg = state.messages[userIdx]
   const currentSnapshot = state.messages.slice(userIdx)
 
-  const branches: ChatMessage[][] = userMsg.branches
+  const existingBranches: ChatMessage[][] = userMsg.branches
     ? [...userMsg.branches]
     : []
-  const curIdx = userMsg.activeBranchIndex ?? 0
+  const curIdx = existingBranches.length > 0 ? (userMsg.activeBranchIndex ?? 0) : 0
 
-  if (branches.length === 0) {
-    if (currentSnapshot.length > 0) {
-      currentSnapshot[0].activeBranchIndex = 0
-      currentSnapshot[0].branchType = "edit"
-    }
-    branches.push(currentSnapshot)
-  } else {
-    if (currentSnapshot.length > 0) {
-      currentSnapshot[0].activeBranchIndex = curIdx
-      currentSnapshot[0].branchType = "edit"
-    }
-    branches[curIdx] = currentSnapshot
+  // Clone root message to avoid mutating shared store reference
+  const snapshotRoot: ChatMessage = {
+    ...(currentSnapshot[0] ?? userMsg),
+    activeBranchIndex: curIdx,
+    branchType: "edit",
   }
+  const savedSnapshot: ChatMessage[] = currentSnapshot.length > 0
+    ? [snapshotRoot, ...currentSnapshot.slice(1)]
+    : [snapshotRoot]
+
+  const branches: ChatMessage[][] = existingBranches.length === 0
+    ? [savedSnapshot]
+    : existingBranches.map((b, i) => i === curIdx ? savedSnapshot : b)
 
   const newBranchIndex = branches.length
   const newId = `msg-${++msgIdCounter}-${Date.now()}`
-  const newMsg = {
+  const newMsg: ChatMessage = {
     ...userMsg,
     id: newId,
     content: text,
     timestamp: Date.now(),
     branches,
     activeBranchIndex: newBranchIndex,
-    branchType: "edit" as const,
+    branchType: "edit",
   }
 
   branches.push([newMsg])
   for (let b = 0; b < branches.length; b++) {
     if (branches[b][0]) {
-      branches[b][0].branches = branches
-      branches[b][0].activeBranchIndex = b
-      branches[b][0].branchType = "edit"
+      branches[b] = [
+        { ...branches[b][0], branches, activeBranchIndex: b, branchType: "edit" },
+        ...branches[b].slice(1),
+      ]
     }
   }
 
@@ -726,6 +776,13 @@ export function editUserTurn(
     messages: nextMessages,
     isTyping: true,
   })
+
+  if (state.activeSessionId && !state.activeSessionId.startsWith("temp-")) {
+    const turns = extractBranchTurns(nextMessages)
+    if (turns.length > 0) {
+      void saveSessionBranchTurns(state.activeSessionId, turns).catch(() => {})
+    }
+  }
   sessionTypingMap.set(state.activeSessionId, true)
   if (state.activeSessionId) {
     recordLocalSession(state.activeSessionId, text)
@@ -933,33 +990,46 @@ export async function syncActiveSessionFromBackend(targetSessionId?: string) {
   const sessionId = targetSessionId || activeSessionIdRef
   if (!sessionId || sessionId.startsWith("temp-")) return
   try {
-    const historyMessages = await loadSessionMessages(sessionId)
     const currentState = getChatState()
-    if (currentState.activeSessionId !== sessionId || !historyMessages || historyMessages.length === 0) {
+    if (currentState.activeSessionId !== sessionId || currentState.isTyping) {
+      return
+    }
+
+    const historyMessages = await loadSessionMessages(sessionId)
+    if (!historyMessages || historyMessages.length === 0) {
       return
     }
 
     const reconstructed = reconstructBranchesFromHistory(historyMessages)
-    const lastMsg = historyMessages[historyMessages.length - 1]
-    const isAssistantFinished =
-      lastMsg?.role === "assistant" &&
-      lastMsg.kind !== "tool_calls" &&
-      Boolean(lastMsg.content?.trim())
+    const hasHistoryBranches = reconstructed.some((m) => m.branches && m.branches.length > 0)
+    const hasClientBranches = currentState.messages.some((m) => m.branches && m.branches.length > 0)
 
-    // If current state has messages, merge to avoid losing newly sent user inputs
-    const nextMessages =
-      currentState.messages.length > 0
-        ? mergeHistoryMessages(reconstructed, currentState.messages)
-        : reconstructed
+    let nextMessages = reconstructed
+    if (!hasHistoryBranches && hasClientBranches && currentState.messages.length > 0) {
+      nextMessages = reconstructed.map((recMsg) => {
+        if (recMsg.role === "user") {
+          const clientMatch = currentState.messages.find(
+            (cm) => cm.role === "user" && (cm.id === recMsg.id || cm.content.trim() === recMsg.content.trim()),
+          )
+          if (clientMatch?.branches && clientMatch.branches.length > 0) {
+            return {
+              ...recMsg,
+              branches: clientMatch.branches,
+              activeBranchIndex: clientMatch.activeBranchIndex,
+              branchType: clientMatch.branchType,
+            }
+          }
+        }
+        return recMsg
+      })
+    }
 
     sessionMessagesMap.set(sessionId, nextMessages)
     updateChatStore({
       messages: nextMessages,
-      ...(isAssistantFinished ? { isTyping: false } : {}),
+      isTyping: false,
     })
-    if (isAssistantFinished) {
-      sessionTypingMap.set(sessionId, false)
-    }
+    sessionTypingMap.set(sessionId, false)
   } catch {
     // Ignore if session not yet created on backend
   }

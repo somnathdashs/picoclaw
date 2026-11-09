@@ -14,10 +14,12 @@ export interface CronPayload {
   command?: string
   channel?: string
   to?: string
+  deliver?: boolean
   Command?: string
   Channel?: string
   Message?: string
   To?: string
+  Deliver?: boolean
 }
 
 export interface CronRunRecord {
@@ -25,6 +27,9 @@ export interface CronRunRecord {
   durationMs: number
   status: "ok" | "error" | "running" | string
   error?: string
+  output?: string
+  Error?: string
+  Output?: string
 }
 
 export interface CronJobState {
@@ -32,10 +37,13 @@ export interface CronJobState {
   lastRunAtMs?: number
   lastStatus?: string
   lastError?: string
+  lastOutput?: string
   history?: CronRunRecord[]
   NextRunAtMS?: number
   LastRunAtMS?: number
   LastStatus?: string
+  LastError?: string
+  LastOutput?: string
   History?: CronRunRecord[]
 }
 

@@ -127,6 +127,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// Runtime build/version metadata
 	h.registerVersionRoutes(mux)
 
+	// Device metrics and resource telemetry
+	h.registerDeviceStateRoutes(mux)
+
 	// WeChat QR login flow
 	h.registerWeixinRoutes(mux)
 
@@ -144,6 +147,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 
 	// Workspace file management
 	h.registerWorkspaceRoutes(mux)
+
+	// Web browsing gateway proxy
+	h.registerProxyRoutes(mux)
 }
 
 // Shutdown gracefully shuts down the handler, stopping the gateway if it was started by this handler.

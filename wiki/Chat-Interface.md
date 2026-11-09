@@ -54,8 +54,8 @@ Each assistant response provides quick actions at the bottom:
 - **Copy**: One-click copying of the full message content with instant visual feedback.
 - **Read Aloud (Text to Speech)**: Listen to responses with natural browser voice playback. Click again anytime to pause or stop.
 - **Regenerate Response**: Request a fresh response with a safe confirmation dialog so work is never lost accidentally.
-- **Regeneration Branch Navigation (`< 1 / 2 >`)**: Regenerating creates a new branch on the conversation tree. The branch switcher appears below the AI response for regeneration branches, allowing you to flip between alternative answers. Branches are persistent and restored across page reloads.
-- **Active Branching in Go Prompt**: When you regenerate a turn, the Go agent constructs the LLM prompt using only the turns leading up to that point. The previous assistant response is excluded so the model receives a clean, unpolluted context to generate a fresh reply.
+- **Regeneration Branch Navigation (`< 1 / 2 >`)**: Regenerating creates a new branch on the conversation tree. The branch switcher appears below the AI response, allowing you to flip between alternative answers. All branches are managed and saved on the gateway, so they remain fully intact across page reloads and tab switches.
+- **Active Branching on Gateway**: When you switch or regenerate a turn, the gateway automatically updates the session's active branch so the AI receives only the clean conversation history leading up to that point.
 
 ---
 
@@ -66,9 +66,9 @@ Each user message provides accessible action buttons below the message bubble:
 - **Action Icons Row**: Dedicated Copy and Edit buttons sit directly beneath the user message bubble.
 - **Timestamp Placement**: The message timestamp appears cleanly right below the action icons row.
 - **Inline Editing**: Clicking the Edit button opens an inline editing card where you can revise your prompt. Press `Enter` to send, `Shift + Enter` for a new line, or `Escape` to cancel. You can also re-send without edits if desired.
-- **Edit Branching**: Submitting an edited message preserves your previous branch and branches into a new conversation path where the previous AI response is cleared, giving the agent a clean turn to answer the updated prompt.
-- **Edit Branch Navigation (`< 1 / 2 >`)**: For edit branches, the branch switcher (`< 1 / 2 >`) appears directly below the user message so you can switch between prompt versions anytime.
-- **Prompt Isolation Across Branches**: When an earlier turn is edited, the Go backend builds the conversation prompt strictly from the active branch path. Any subsequent turns or discarded alternatives from other branches are omitted from the LLM prompt, ensuring the model never sees conflicting history from divergent branches.
+- **Edit Branching**: Submitting an edited message preserves your previous branch and creates a new path. The gateway tracks both versions, allowing you to switch between different prompts anytime.
+- **Edit Branch Navigation (`< 1 / 2 >`)**: For edit branches, the branch switcher appears below the user message. Switching branches updates the active conversation path on the gateway, and the frontend simply fetches and displays the chosen branch.
+- **Persistent Branch History**: Because branch trees and active branch indices are stored directly on the gateway, your branch navigation buttons and alternative message paths never disappear on page refresh or when switching browser tabs.
 
 ---
 
@@ -187,6 +187,32 @@ PicoClaw provides an integrated slide-over preview panel to inspect files and at
   - For formats without in-browser rendering (e.g. binaries, archives, CAD, proprietary data), the panel displays a centered view with the file extension logo badge, file name, formatted `(size)` in parentheses, and a direct download button.
 - **Upload Progress in Composer**:
   - While uploading files in the chat box, an animated circular progress indicator is shown in place of the close (`✕`) button. Once the upload finishes successfully, the cross icon appears so you can remove the attachment if desired. If an upload fails, the item is removed automatically and an error notification is displayed.
+
+---
+
+### 15. Right-Side Browser Viewport (Live Browser, Antigravity Click Ripples & Agent Watch Mode)
+
+PicoClaw includes an integrated **Browser Viewport** that opens neatly on the right side of the chat interface, giving users a seamless browser window that reflects automated browser actions in real time:
+
+- **Quick Access via Top Bar & Menu**:
+  - Click the **Browser** button in the chat header or select it from the More Options (`...`) menu anytime to toggle the panel.
+  - When the AI assistant executes browser automation commands, the Browser Viewport automatically opens with an active glowing indicator.
+- **Unified Live Viewport**:
+  - Direct, full-bleed interactive browser window with URL address bar, Back, Forward, Reload, and URL copy controls.
+  - Built-in **Gateway Proxy**: Automatically routes browsing through the backend gateway proxy to bypass strict `X-Frame-Options` and `Content-Security-Policy` header restrictions on external websites and LAN servers.
+  - Quick preset buttons for Gateway Home, `/health`, `/ready`, and the active AI target website.
+  - Multi-device viewport selector: Switch between Desktop, Tablet (768px), Mobile (375px), and Watch (200px) viewports to test web layouts across all display sizes.
+- **Antigravity-Style Big Cursor & Click Animation**:
+  - Whenever a click occurs—whether triggered by the AI assistant (`click @e1`) or by the user—a prominent high-contrast cursor pointer appears accompanied by expanding concentric ripple rings and an action tag displaying the target element or ref.
+  - Includes a dedicated **Simulate Click** button in the toolbar to test and preview the Antigravity click animation at any time.
+- **Agent Watch Mode Lock**:
+  - When the AI is actively controlling the site, the viewport automatically engages **Watch Mode**:
+  - User controls are temporarily locked so you can sit back and watch the AI drive the browser without accidental interference.
+  - Displays a live status banner with current command execution (e.g. `$ agent-browser click @e1`).
+  - Once the AI finishes its turn, interactive control is immediately returned to the user.
+- **Responsive on All Devices**:
+  - Automatically adapts from smartwatch viewports (< 300px) and smartphones to tablets, desktops (with drag-to-resize handle), and Android TV.
+
 
 
 

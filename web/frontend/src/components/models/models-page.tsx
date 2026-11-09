@@ -25,6 +25,11 @@ import {
 import { ConfigChangeNotice } from "@/components/config-change-notice"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { showSaveSuccessOrRestartToast } from "@/lib/restart-required"
 import { refreshGatewayState } from "@/store/gateway"
 
@@ -956,42 +961,90 @@ export function ModelsPage() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader title={t("navigation.models")}>
-        <div className="flex items-center gap-3">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setDefaultChainOpen(true)}
-            disabled={
-              savingChain ||
-              modelUpdatePending ||
-              (models.length === 0 && !defaultModelDraft)
-            }
-          >
-            <IconArrowsSort className="size-4" />
-            {t("models.defaultChain.button")}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setCatalogOpen(true)}
-            disabled={
-              savingChain || modelUpdatePending || providerOptions.length === 0
-            }
-          >
-            <IconDatabase className="size-4" />
-            {t("models.catalog.button")}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setAddOpen(true)}
-            disabled={
-              savingChain || modelUpdatePending || providerOptions.length === 0
-            }
-          >
-            <IconPlus className="size-4" />
-            {t("models.add.button")}
-          </Button>
+        <div className="flex items-center gap-1 xs:gap-1.5 sm:gap-2 md:gap-3">
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <span className="inline-flex">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setDefaultChainOpen(true)}
+                  disabled={
+                    savingChain ||
+                    modelUpdatePending ||
+                    (models.length === 0 && !defaultModelDraft)
+                  }
+                  title={t("models.defaultChain.button")}
+                  aria-label={t("models.defaultChain.button")}
+                  className="h-8 px-2 sm:h-9 sm:px-3 gap-1.5 shrink-0"
+                >
+                  <IconArrowsSort className="size-4 shrink-0" />
+                  <span className="hidden md:inline">
+                    {t("models.defaultChain.button")}
+                  </span>
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="md:hidden">
+              {t("models.defaultChain.button")}
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <span className="inline-flex">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setCatalogOpen(true)}
+                  disabled={
+                    savingChain ||
+                    modelUpdatePending ||
+                    providerOptions.length === 0
+                  }
+                  title={t("models.catalog.button")}
+                  aria-label={t("models.catalog.button")}
+                  className="h-8 px-2 sm:h-9 sm:px-3 gap-1.5 shrink-0"
+                >
+                  <IconDatabase className="size-4 shrink-0" />
+                  <span className="hidden sm:inline">
+                    {t("models.catalog.button")}
+                  </span>
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="sm:hidden">
+              {t("models.catalog.button")}
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <span className="inline-flex">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setAddOpen(true)}
+                  disabled={
+                    savingChain ||
+                    modelUpdatePending ||
+                    providerOptions.length === 0
+                  }
+                  title={t("models.add.button")}
+                  aria-label={t("models.add.button")}
+                  className="h-8 px-2 sm:h-9 sm:px-3 gap-1.5 shrink-0"
+                >
+                  <IconPlus className="size-4 shrink-0" />
+                  <span className="hidden sm:inline">
+                    {t("models.add.button")}
+                  </span>
+                </Button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent className="sm:hidden">
+              {t("models.add.button")}
+            </TooltipContent>
+          </Tooltip>
         </div>
       </PageHeader>
 

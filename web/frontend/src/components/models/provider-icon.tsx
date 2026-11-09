@@ -14,11 +14,11 @@ export function ProviderIcon({ provider }: ProviderIconProps) {
     const slug = provider.iconSlug
     const domain = provider.domain
     const urls: string[] = []
-    if (slug) {
-      urls.push(`https://cdn.simpleicons.org/${slug}`)
-    }
     if (domain) {
       urls.push(`https://www.google.com/s2/favicons?domain=${domain}&sz=64`)
+    }
+    if (slug) {
+      urls.push(`https://cdn.simpleicons.org/${slug}`)
     }
     return urls
   }, [provider.domain, provider.iconSlug])

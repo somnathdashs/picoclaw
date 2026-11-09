@@ -29,6 +29,7 @@ type CronPayload struct {
 	Command string `json:"command,omitempty"`
 	Channel string `json:"channel,omitempty"`
 	To      string `json:"to,omitempty"`
+	Deliver bool   `json:"deliver,omitempty"`
 }
 
 type CronRunRecord struct {
@@ -36,6 +37,7 @@ type CronRunRecord struct {
 	DurationMS int64  `json:"durationMs"`
 	Status     string `json:"status"`
 	Error      string `json:"error,omitempty"`
+	Output     string `json:"output,omitempty"`
 }
 
 type CronJobState struct {
@@ -43,6 +45,7 @@ type CronJobState struct {
 	LastRunAtMS *int64          `json:"lastRunAtMs,omitempty"`
 	LastStatus  string          `json:"lastStatus,omitempty"`
 	LastError   string          `json:"lastError,omitempty"`
+	LastOutput  string          `json:"lastOutput,omitempty"`
 	History     []CronRunRecord `json:"history,omitempty"`
 }
 
@@ -66,14 +69,15 @@ type CronStore struct {
 type JobHandler func(job *CronJob) (string, error)
 
 type CronService struct {
-	storePath string
-	store     *CronStore
-	onJob     JobHandler
-	mu        sync.RWMutex
-	running   bool
-	stopChan  chan struct{}
-	wakeChan  chan struct{}
-	gronx     *gronx.Gronx
+	storePath         string
+	store             *CronStore
+	lastLoadedModTime time.Time
+	onJob             JobHandler
+	mu                sync.RWMutex
+	running           bool
+	stopChan          chan struct{}
+	wakeChan          chan struct{}
+	gronx             *gronx.Gronx
 }
 
 func NewCronService(storePath string, onJob JobHandler) *CronService {
@@ -138,21 +142,22 @@ func (cs *CronService) runLoop(stopChan chan struct{}) {
 	defer timer.Stop()
 
 	for {
-		// every loop, recalculate the next wake time
-		cs.mu.RLock()
+		cs.mu.Lock()
+		cs.reloadIfModifiedUnsafe()
 		nextWake := cs.getNextWakeMS()
-		cs.mu.RUnlock()
+		cs.mu.Unlock()
 
 		var delay time.Duration
 		now := time.Now().UnixMilli()
 
 		if nextWake == nil {
-			// no jobs, sleep for a long time (or until a new job is added)
-			delay = time.Hour
+			delay = 2 * time.Second
 		} else {
 			diff := *nextWake - now
 			if diff <= 0 {
 				delay = 0
+			} else if diff > 2000 {
+				delay = 2 * time.Second
 			} else {
 				delay = time.Duration(diff) * time.Millisecond
 			}
@@ -184,6 +189,8 @@ func (cs *CronService) checkJobs() {
 		cs.mu.Unlock()
 		return
 	}
+
+	cs.reloadIfModifiedUnsafe()
 
 	now := time.Now().UnixMilli()
 	var dueJobIDs []string
@@ -244,8 +251,9 @@ func (cs *CronService) executeJobByID(jobID string) {
 		callbackJob.Name, jobID, callbackJob.Schedule.Kind, callbackJob.Payload.Channel)
 
 	var err error
+	var resultStr string
 	if cs.onJob != nil {
-		_, err = cs.onJob(callbackJob)
+		resultStr, err = cs.onJob(callbackJob)
 	}
 
 	execDuration := time.Now().UnixMilli() - startTime
@@ -253,6 +261,8 @@ func (cs *CronService) executeJobByID(jobID string) {
 	// Now acquire lock to update state
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
+
+	cs.reloadIfModifiedUnsafe()
 
 	var job *CronJob
 	for i := range cs.store.Jobs {
@@ -269,20 +279,30 @@ func (cs *CronService) executeJobByID(jobID string) {
 	job.State.LastRunAtMS = &startTime
 	job.UpdatedAtMS = time.Now().UnixMilli()
 
+	output := resultStr
+	if callbackJob.State.LastOutput != "" {
+		output = callbackJob.State.LastOutput
+	} else if resultStr == "ok" {
+		output = ""
+	}
+
 	record := CronRunRecord{
 		RunAtMS:    startTime,
 		DurationMS: execDuration,
 		Status:     "ok",
+		Output:     output,
 	}
 	if err != nil {
 		job.State.LastStatus = "error"
 		job.State.LastError = err.Error()
+		job.State.LastOutput = output
 		record.Status = "error"
 		record.Error = err.Error()
 		log.Printf("[cron] ✗ job '%s' failed after %dms: %v", job.Name, execDuration, err)
 	} else {
 		job.State.LastStatus = "ok"
 		job.State.LastError = ""
+		job.State.LastOutput = output
 	}
 	job.State.History = append([]CronRunRecord{record}, job.State.History...)
 	if len(job.State.History) > 20 {
@@ -410,7 +430,21 @@ func (cs *CronService) loadStore() error {
 		return err
 	}
 
+	if fi, statErr := os.Stat(cs.storePath); statErr == nil {
+		cs.lastLoadedModTime = fi.ModTime()
+	}
+
 	return json.Unmarshal(data, cs.store)
+}
+
+func (cs *CronService) reloadIfModifiedUnsafe() {
+	fi, err := os.Stat(cs.storePath)
+	if err != nil {
+		return
+	}
+	if fi.ModTime().After(cs.lastLoadedModTime) {
+		_ = cs.loadStore()
+	}
 }
 
 func (cs *CronService) saveStoreUnsafe() error {
@@ -419,8 +453,13 @@ func (cs *CronService) saveStoreUnsafe() error {
 		return err
 	}
 
-	// Use unified atomic write utility with explicit sync for flash storage reliability.
-	return fileutil.WriteFileAtomic(cs.storePath, data, 0o600)
+	err = fileutil.WriteFileAtomic(cs.storePath, data, 0o600)
+	if err == nil {
+		if fi, statErr := os.Stat(cs.storePath); statErr == nil {
+			cs.lastLoadedModTime = fi.ModTime()
+		}
+	}
+	return err
 }
 
 func (cs *CronService) AddJob(
@@ -432,10 +471,11 @@ func (cs *CronService) AddJob(
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
+	cs.reloadIfModifiedUnsafe()
+
 	now := time.Now().UnixMilli()
 
-	// One-time tasks (at) should be deleted after execution
-	deleteAfterRun := (schedule.Kind == "at")
+	deleteAfterRun := schedule.Kind == "at"
 
 	job := CronJob{
 		ID:       generateID(),
@@ -467,8 +507,10 @@ func (cs *CronService) AddJob(
 }
 
 func (cs *CronService) GetJob(jobID string) (*CronJob, bool) {
-	cs.mu.RLock()
-	defer cs.mu.RUnlock()
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	cs.reloadIfModifiedUnsafe()
 
 	for i := range cs.store.Jobs {
 		if cs.store.Jobs[i].ID == jobID {
@@ -482,6 +524,8 @@ func (cs *CronService) GetJob(jobID string) (*CronJob, bool) {
 func (cs *CronService) UpdateJob(job *CronJob) error {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
+
+	cs.reloadIfModifiedUnsafe()
 
 	for i := range cs.store.Jobs {
 		if cs.store.Jobs[i].ID == job.ID {
@@ -546,6 +590,8 @@ func (cs *CronService) RemoveJob(jobID string) bool {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
+	cs.reloadIfModifiedUnsafe()
+
 	return cs.removeJobUnsafe(jobID)
 }
 
@@ -575,6 +621,8 @@ func (cs *CronService) EnableJob(jobID string, enabled bool) *CronJob {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
+	cs.reloadIfModifiedUnsafe()
+
 	for i := range cs.store.Jobs {
 		job := &cs.store.Jobs[i]
 		if job.ID == jobID {
@@ -601,8 +649,10 @@ func (cs *CronService) EnableJob(jobID string, enabled bool) *CronJob {
 }
 
 func (cs *CronService) ListJobs(includeDisabled bool) []CronJob {
-	cs.mu.RLock()
-	defer cs.mu.RUnlock()
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	cs.reloadIfModifiedUnsafe()
 
 	if includeDisabled {
 		return cs.store.Jobs
@@ -619,8 +669,10 @@ func (cs *CronService) ListJobs(includeDisabled bool) []CronJob {
 }
 
 func (cs *CronService) Status() map[string]any {
-	cs.mu.RLock()
-	defer cs.mu.RUnlock()
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+
+	cs.reloadIfModifiedUnsafe()
 
 	var enabledCount int
 	for _, job := range cs.store.Jobs {

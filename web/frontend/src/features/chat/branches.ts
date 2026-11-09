@@ -1,29 +1,75 @@
 import type { ChatMessage } from "@/store/chat"
+import type { SessionBranchTurn } from "@/api/sessions"
+
+// Extract branch structures to save to gateway
+export function extractBranchTurns(messages: ChatMessage[]): SessionBranchTurn[] {
+  const turns: SessionBranchTurn[] = []
+  for (const m of messages) {
+    if (m.role === "user" && m.branches && m.branches.length > 0) {
+      turns.push({
+        root_id: m.id,
+        active_branch_index: m.activeBranchIndex ?? 0,
+        branch_type: m.branchType ?? "regeneration",
+        branches: m.branches.map((b) =>
+          b.map((msg) => ({
+            id: msg.id,
+            role: msg.role === "assistant" ? "assistant" : "user",
+            content: msg.content,
+            kind: msg.kind,
+            model_name: msg.modelName,
+            created_at:
+              typeof msg.timestamp === "number"
+                ? new Date(msg.timestamp).toISOString()
+                : String(msg.timestamp),
+            attachments: (msg.attachments ?? []).map((att) => ({
+              type: att.type,
+              url: att.url,
+              filename: att.filename,
+              content_type: att.contentType,
+            })),
+          })),
+        ),
+      })
+    }
+  }
+  return turns
+}
 
 // Sync active branch snapshots into root branches array
 export function syncActiveBranches(messages: ChatMessage[]): ChatMessage[] {
-  for (let i = 0; i < messages.length; i++) {
-    const m = messages[i]
+  const result = [...messages]
+  for (let i = 0; i < result.length; i++) {
+    const m = result[i]
     if (m.branches && m.branches.length > 0) {
       const curIdx = Math.max(
         0,
         Math.min(m.activeBranchIndex ?? 0, m.branches.length - 1),
       )
-      const currentSnapshot = messages.slice(i)
-      m.branches[curIdx] = currentSnapshot
+      const currentSnapshot = result.slice(i)
+      // Clone branches array to avoid mutating the shared reference
+      const updatedBranches = [...m.branches]
+      updatedBranches[curIdx] = currentSnapshot
 
-      for (let b = 0; b < m.branches.length; b++) {
-        if (m.branches[b]?.[0]) {
-          m.branches[b][0].branches = m.branches
-          m.branches[b][0].activeBranchIndex = b
-          if (m.branchType) {
-            m.branches[b][0].branchType = m.branchType
-          }
+      for (let b = 0; b < updatedBranches.length; b++) {
+        if (updatedBranches[b]?.[0]) {
+          // Clone the root message of each branch before mutating
+          updatedBranches[b] = [
+            {
+              ...updatedBranches[b][0],
+              branches: updatedBranches,
+              activeBranchIndex: b,
+              ...(m.branchType ? { branchType: m.branchType } : {}),
+            },
+            ...updatedBranches[b].slice(1),
+          ]
         }
       }
+
+      // Replace the message in result with an updated clone
+      result[i] = { ...m, branches: updatedBranches, activeBranchIndex: curIdx }
     }
   }
-  return messages
+  return result
 }
 
 // Format chat messages along the active branch for backend prompt history
@@ -78,6 +124,11 @@ export function reconstructBranchesFromHistory(
   historyMessages: ChatMessage[],
 ): ChatMessage[] {
   if (historyMessages.length === 0) return []
+
+  // If gateway already provided branches, use them directly
+  if (historyMessages.some((m) => m.branches && m.branches.length > 0)) {
+    return historyMessages
+  }
 
   interface Turn {
     user: ChatMessage
@@ -140,15 +191,24 @@ export function reconstructBranchesFromHistory(
         ? "edit"
         : "regeneration")
 
+    const updatedBranches: ChatMessage[][] = []
     for (let b = 0; b < branches.length; b++) {
       if (branches[b]?.[0]) {
-        branches[b][0].branches = branches
-        branches[b][0].activeBranchIndex = b
-        branches[b][0].branchType = branchType
+        updatedBranches.push([
+          {
+            ...branches[b][0],
+            branches: updatedBranches,
+            activeBranchIndex: b,
+            branchType,
+          },
+          ...branches[b].slice(1),
+        ])
+      } else {
+        updatedBranches.push(branches[b] ?? [])
       }
     }
 
-    const activeBranch = branches[activeIdx] ?? branches[0]
+    const activeBranch = updatedBranches[activeIdx] ?? updatedBranches[0]
     if (activeBranch) finalMessages.push(...activeBranch)
   }
 

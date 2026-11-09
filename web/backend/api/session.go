@@ -28,6 +28,7 @@ import (
 func (h *Handler) registerSessionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/sessions", h.handleListSessions)
 	mux.HandleFunc("GET /api/sessions/{id}", h.handleGetSession)
+	mux.HandleFunc("POST /api/sessions/{id}/branch", h.handleSessionBranch)
 	mux.HandleFunc("DELETE /api/sessions/{id}", h.handleDeleteSession)
 	mux.HandleFunc("DELETE /api/sessions", h.handleClearSessions)
 	mux.HandleFunc("POST /api/sessions/clear", h.handleClearSessions)
@@ -59,14 +60,37 @@ type sessionListItem struct {
 }
 
 type sessionChatMessage struct {
-	Role        string                  `json:"role"`
-	Content     string                  `json:"content"`
-	Kind        string                  `json:"kind,omitempty"`
-	ModelName   string                  `json:"model_name,omitempty"`
-	CreatedAt   *time.Time              `json:"created_at,omitempty"`
-	Media       []string                `json:"media,omitempty"`
-	Attachments []sessionChatAttachment `json:"attachments,omitempty"`
-	ToolCalls   []utils.VisibleToolCall `json:"tool_calls,omitempty"`
+	ID                string                  `json:"id,omitempty"`
+	Role              string                  `json:"role"`
+	Content           string                  `json:"content"`
+	Kind              string                  `json:"kind,omitempty"`
+	ModelName         string                  `json:"model_name,omitempty"`
+	CreatedAt         *time.Time              `json:"created_at,omitempty"`
+	Media             []string                `json:"media,omitempty"`
+	Attachments       []sessionChatAttachment `json:"attachments,omitempty"`
+	ToolCalls         []utils.VisibleToolCall `json:"tool_calls,omitempty"`
+	Branches          [][]sessionChatMessage  `json:"branches,omitempty"`
+	ActiveBranchIndex *int                    `json:"active_branch_index,omitempty"`
+	BranchType        string                  `json:"branch_type,omitempty"`
+}
+
+type sessionBranchTurn struct {
+	RootID            string                 `json:"root_id"`
+	ActiveBranchIndex int                    `json:"active_branch_index"`
+	BranchType        string                 `json:"branch_type"`
+	Branches          [][]sessionChatMessage `json:"branches"`
+}
+
+type sessionBranchesFile struct {
+	Version int                 `json:"version"`
+	Turns   []sessionBranchTurn `json:"turns"`
+}
+
+type sessionBranchRequest struct {
+	Action            string              `json:"action"`
+	TurnID            string              `json:"turn_id,omitempty"`
+	TargetBranchIndex int                 `json:"target_branch_index,omitempty"`
+	Turns             []sessionBranchTurn `json:"turns,omitempty"`
 }
 
 type sessionChatAttachment struct {
@@ -503,6 +527,25 @@ func (h *Handler) findPicoJSONLSession(dir, sessionID string) (picoJSONLSessionR
 			Type:    "web",
 			Channel: "pico",
 		}, nil
+	}
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".meta.json") {
+				continue
+			}
+			metaPath := filepath.Join(dir, entry.Name())
+			if data, err := os.ReadFile(metaPath); err == nil {
+				if strings.Contains(string(data), cleanID) {
+					key := strings.TrimSuffix(entry.Name(), ".meta.json")
+					return picoJSONLSessionRef{
+						ID:      cleanID,
+						Key:     key,
+						Type:    "web",
+						Channel: "pico",
+					}, nil
+				}
+			}
+		}
 	}
 	return picoJSONLSessionRef{}, os.ErrNotExist
 }
@@ -1326,6 +1369,11 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	}
 	messages := detailSessionMessages(sess.Messages, toolFeedbackMaxArgsLength)
 
+	base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
+	if bf, ok := h.readSessionBranches(base); ok && len(bf.Turns) > 0 {
+		messages = h.mergeBranchesIntoMessages(messages, bf)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"id":       sessionID,
@@ -1334,6 +1382,291 @@ func (h *Handler) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		"created":  sess.Created.Format(time.RFC3339),
 		"updated":  sess.Updated.Format(time.RFC3339),
 	})
+}
+
+// readSessionBranches reads the branch data file for a session.
+func (h *Handler) readSessionBranches(base string) (sessionBranchesFile, bool) {
+	branchesPath := base + ".branches.json"
+	data, err := os.ReadFile(branchesPath)
+	if err != nil {
+		return sessionBranchesFile{}, false
+	}
+	var bf sessionBranchesFile
+	if err := json.Unmarshal(data, &bf); err != nil {
+		return sessionBranchesFile{}, false
+	}
+	return bf, true
+}
+
+// writeSessionBranches writes branch data to disk.
+func (h *Handler) writeSessionBranches(base string, bf sessionBranchesFile) error {
+	branchesPath := base + ".branches.json"
+	bf.Version = 1
+	data, err := json.MarshalIndent(bf, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(branchesPath, data, 0o644)
+}
+
+func containsMessageID(branches [][]sessionChatMessage, id string) bool {
+	if id == "" {
+		return false
+	}
+	for _, branch := range branches {
+		for _, msg := range branch {
+			if msg.ID == id {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+type sessionTurnBlock struct {
+	userMsg       sessionChatMessage
+	assistantMsgs []sessionChatMessage
+}
+
+// mergeBranchesIntoMessages overlays saved branches onto transcript messages without dropping unbranched turns.
+func (h *Handler) mergeBranchesIntoMessages(messages []sessionChatMessage, bf sessionBranchesFile) []sessionChatMessage {
+	if len(bf.Turns) == 0 || len(messages) == 0 {
+		return messages
+	}
+
+	var preBlocks []sessionChatMessage
+	var turns []sessionTurnBlock
+	var curTurn *sessionTurnBlock
+
+	for _, msg := range messages {
+		if msg.Role == "user" {
+			if curTurn != nil {
+				turns = append(turns, *curTurn)
+			}
+			curTurn = &sessionTurnBlock{userMsg: msg}
+		} else if curTurn != nil {
+			curTurn.assistantMsgs = append(curTurn.assistantMsgs, msg)
+		} else {
+			preBlocks = append(preBlocks, msg)
+		}
+	}
+	if curTurn != nil {
+		turns = append(turns, *curTurn)
+	}
+
+	if len(turns) == 0 {
+		return messages
+	}
+
+	for _, bTurn := range bf.Turns {
+		if len(bTurn.Branches) == 0 {
+			continue
+		}
+		activeIdx := bTurn.ActiveBranchIndex
+		if activeIdx < 0 || activeIdx >= len(bTurn.Branches) {
+			activeIdx = 0
+		}
+
+		matchedIdx := -1
+		for i := range turns {
+			tRoot := turns[i].userMsg.ID
+			if (tRoot != "" && tRoot == bTurn.RootID) || containsMessageID(bTurn.Branches, tRoot) {
+				matchedIdx = i
+				break
+			}
+		}
+
+		if matchedIdx == -1 {
+			targetPrompt := ""
+			if len(bTurn.Branches) > 0 && len(bTurn.Branches[0]) > 0 {
+				targetPrompt = strings.TrimSpace(bTurn.Branches[0][0].Content)
+			}
+			if targetPrompt != "" {
+				for i := range turns {
+					if strings.TrimSpace(turns[i].userMsg.Content) == targetPrompt {
+						matchedIdx = i
+						break
+					}
+				}
+			}
+		}
+
+		if matchedIdx == -1 && len(bf.Turns) == 1 {
+			matchedIdx = len(turns) - 1
+		}
+
+		if matchedIdx >= 0 && matchedIdx < len(turns) {
+			targetBlock := &turns[matchedIdx]
+			activeBranch := bTurn.Branches[activeIdx]
+			if len(activeBranch) > 0 {
+				rootMsg := activeBranch[0]
+				rootMsg.Branches = bTurn.Branches
+				activeCopy := activeIdx
+				rootMsg.ActiveBranchIndex = &activeCopy
+				rootMsg.BranchType = bTurn.BranchType
+				if rootMsg.ID == "" {
+					rootMsg.ID = targetBlock.userMsg.ID
+				}
+				targetBlock.userMsg = rootMsg
+				targetBlock.assistantMsgs = activeBranch[1:]
+			} else {
+				targetBlock.userMsg.Branches = bTurn.Branches
+				activeCopy := activeIdx
+				targetBlock.userMsg.ActiveBranchIndex = &activeCopy
+				targetBlock.userMsg.BranchType = bTurn.BranchType
+			}
+		}
+	}
+
+	var result []sessionChatMessage
+	result = append(result, preBlocks...)
+	for _, turn := range turns {
+		result = append(result, turn.userMsg)
+		result = append(result, turn.assistantMsgs...)
+	}
+
+	return result
+}
+
+// syncActiveBranchToJSONL rewrites linear session JSONL with active branch messages.
+func (h *Handler) syncActiveBranchToJSONL(base string, bf sessionBranchesFile, currentMessages []sessionChatMessage) error {
+	jsonlPath := base + ".jsonl"
+	merged := h.mergeBranchesIntoMessages(currentMessages, bf)
+	if len(merged) == 0 {
+		return nil
+	}
+
+	var activeProvidersMsgs []providers.Message
+	for _, cm := range merged {
+		var atts []providers.Attachment
+		for _, a := range cm.Attachments {
+			atts = append(atts, providers.Attachment{
+				Type:        a.Type,
+				URL:         a.URL,
+				Filename:    a.Filename,
+				ContentType: a.ContentType,
+				Path:        a.Path,
+			})
+		}
+		activeProvidersMsgs = append(activeProvidersMsgs, providers.Message{
+			Role:        cm.Role,
+			Content:     cm.Content,
+			ModelName:   cm.ModelName,
+			CreatedAt:   cm.CreatedAt,
+			Media:       cm.Media,
+			Attachments: atts,
+		})
+	}
+
+	if len(activeProvidersMsgs) == 0 {
+		return nil
+	}
+
+	var buf strings.Builder
+	for _, m := range activeProvidersMsgs {
+		line, err := json.Marshal(m)
+		if err != nil {
+			continue
+		}
+		buf.Write(line)
+		buf.WriteByte('\n')
+	}
+
+	return os.WriteFile(jsonlPath, []byte(buf.String()), 0o644)
+}
+
+// handleSessionBranch switches active branch or saves branch states.
+func (h *Handler) handleSessionBranch(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("id")
+	if sessionID == "" {
+		http.Error(w, "missing session id", http.StatusBadRequest)
+		return
+	}
+
+	var req sessionBranchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	dir, toolFeedbackMaxArgsLength, err := h.sessionRuntimeSettings()
+	if err != nil {
+		http.Error(w, "failed to resolve sessions directory", http.StatusInternalServerError)
+		return
+	}
+
+	ref, err := h.findPicoJSONLSession(dir, sessionID)
+	if err != nil {
+		http.Error(w, "session not found", http.StatusNotFound)
+		return
+	}
+
+	base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
+
+	switch req.Action {
+	case "save":
+		bf := sessionBranchesFile{
+			Version: 1,
+			Turns:   req.Turns,
+		}
+		if err := h.writeSessionBranches(base, bf); err != nil {
+			http.Error(w, "failed to save branches: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{"success": true})
+		return
+
+	case "switch":
+		bf, ok := h.readSessionBranches(base)
+		if !ok || len(bf.Turns) == 0 {
+			http.Error(w, "no branches found for this session", http.StatusNotFound)
+			return
+		}
+
+		matched := false
+		for i := range bf.Turns {
+			turn := &bf.Turns[i]
+			if turn.RootID == req.TurnID || containsMessageID(turn.Branches, req.TurnID) {
+				if req.TargetBranchIndex >= 0 && req.TargetBranchIndex < len(turn.Branches) {
+					turn.ActiveBranchIndex = req.TargetBranchIndex
+					matched = true
+					break
+				}
+			}
+		}
+
+		if !matched {
+			http.Error(w, "target branch or turn not found", http.StatusBadRequest)
+			return
+		}
+
+		if err := h.writeSessionBranches(base, bf); err != nil {
+			http.Error(w, "failed to update branches: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		sess, readErr := h.readJSONLSession(dir, ref.Key)
+		if readErr != nil {
+			http.Error(w, "failed to reload session: "+readErr.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		currentDetail := detailSessionMessages(sess.Messages, toolFeedbackMaxArgsLength)
+		_ = h.syncActiveBranchToJSONL(base, bf, currentDetail)
+		messages := h.mergeBranchesIntoMessages(currentDetail, bf)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"success":  true,
+			"messages": messages,
+		})
+		return
+
+	default:
+		http.Error(w, "unknown action", http.StatusBadRequest)
+		return
+	}
 }
 
 // handleDeleteSession deletes a specific session.
@@ -1355,7 +1688,7 @@ func (h *Handler) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
 	removed := false
 	if ref, err := h.findPicoJSONLSession(dir, sessionID); err == nil {
 		base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
-		for _, path := range []string{base + ".jsonl", base + ".meta.json"} {
+		for _, path := range []string{base + ".jsonl", base + ".meta.json", base + ".branches.json"} {
 			if err := os.Remove(path); err != nil {
 				if os.IsNotExist(err) {
 					continue
@@ -1429,7 +1762,7 @@ func (h *Handler) handleClearSessions(w http.ResponseWriter, r *http.Request) {
 
 			base := filepath.Join(dir, sanitizeSessionKey(ref.Key))
 			removed := false
-			for _, path := range []string{base + ".jsonl", base + ".meta.json"} {
+			for _, path := range []string{base + ".jsonl", base + ".meta.json", base + ".branches.json"} {
 				if err := os.Remove(path); err == nil {
 					removed = true
 				}

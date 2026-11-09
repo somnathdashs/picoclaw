@@ -7,12 +7,16 @@ import {
   IconBrandTelegram,
   IconBrandWhatsapp,
   IconClock,
+  IconCpu,
+  IconDatabase,
   IconMessageCircle,
   IconPlayerPlay,
   IconPlus,
   IconPower,
   IconRefresh,
+  IconServer,
   IconSparkles,
+  IconThermometer,
 } from "@tabler/icons-react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import dayjs from "dayjs"
@@ -30,6 +34,7 @@ import {
   getCachedSessions,
   getSessions,
 } from "@/api/sessions"
+import { type DeviceState, getDeviceState } from "@/api/system"
 import { type WhatsAppStatus, getWhatsAppStatus } from "@/api/whatsapp"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
@@ -55,12 +60,32 @@ function getCachedDashboardSummary() {
 function setCachedDashboardSummary(data: {
   automations: AutomationJob[]
   channels: SupportedChannel[]
+  deviceState?: DeviceState | null
 }) {
   try {
     localStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify(data))
   } catch {
     // Ignore write error
   }
+}
+
+function formatBytes(bytes?: number): string {
+  if (!bytes || bytes <= 0) return "0 B"
+  const units = ["B", "KB", "MB", "GB", "TB"]
+  const i = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  )
+  const val = bytes / Math.pow(1024, i)
+  return `${val.toFixed(val >= 100 || i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+function formatUptime(seconds?: number): string {
+  if (!seconds || seconds <= 0) return "Just started"
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  if (h > 0) return `${h}h ${m}m`
+  return `${m}m`
 }
 
 export function DashboardPage() {
@@ -89,21 +114,26 @@ export function DashboardPage() {
   const [whatsappStatus, setWhatsappStatus] = useState<WhatsAppStatus | null>(
     null,
   )
+  const [deviceState, setDeviceState] = useState<DeviceState | null>(
+    () => cachedSummary?.deviceState || null,
+  )
   const [loading, setLoading] = useState(
     () => !cachedSummary && sessions.length === 0,
   )
 
   const loadDashboardData = async () => {
     try {
-      const [autoRes, chanRes, sessRes, waRes] = await Promise.allSettled([
+      const [autoRes, chanRes, sessRes, waRes, devRes] = await Promise.allSettled([
         getAutomations(),
         getChannelsCatalog(),
         getSessions(0, 50),
         getWhatsAppStatus(),
+        getDeviceState(),
       ])
 
       let nextAutomations = automations
       let nextChannels = channels
+      let nextDeviceState = deviceState
 
       if (autoRes.status === "fulfilled") {
         nextAutomations = autoRes.value.jobs || []
@@ -122,10 +152,15 @@ export function DashboardPage() {
       if (waRes.status === "fulfilled") {
         setWhatsappStatus(waRes.value)
       }
+      if (devRes.status === "fulfilled") {
+        nextDeviceState = devRes.value
+        setDeviceState(nextDeviceState)
+      }
 
       setCachedDashboardSummary({
         automations: nextAutomations,
         channels: nextChannels,
+        deviceState: nextDeviceState,
       })
     } finally {
       setLoading(false)
@@ -134,6 +169,10 @@ export function DashboardPage() {
 
   useEffect(() => {
     void loadDashboardData()
+    const timer = setInterval(() => {
+      void getDeviceState().then(setDeviceState).catch(() => {})
+    }, 20000)
+    return () => clearInterval(timer)
   }, [])
 
   const isRunning = gwState === "running"
@@ -143,33 +182,32 @@ export function DashboardPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <PageHeader
-        title="Dashboard"
-        titleExtra={
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => void loadDashboardData()}
-              disabled={loading}
-              className="h-9 gap-1.5"
-            >
-              <IconRefresh
-                className={`size-4 ${loading ? "animate-spin" : ""}`}
-              />
-              <span className="hidden sm:inline">Refresh</span>
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => navigate({ to: "/" })}
-              className="bg-primary text-primary-foreground h-9 gap-1.5 shadow-sm"
-            >
-              <IconMessageCircle className="size-4" />
-              <span>Open Chat</span>
-            </Button>
-          </div>
-        }
-      />
+      <PageHeader title="Dashboard">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadDashboardData()}
+            disabled={loading}
+            className="h-8 px-2 sm:h-9 sm:px-3 gap-1.5"
+            title="Refresh dashboard"
+          >
+            <IconRefresh
+              className={`size-4 ${loading ? "animate-spin" : ""}`}
+            />
+            <span className="hidden sm:inline">Refresh</span>
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => navigate({ to: "/" })}
+            className="bg-primary text-primary-foreground h-8 px-2 sm:h-9 sm:px-3 gap-1.5 shadow-sm"
+            title="Open Chat"
+          >
+            <IconMessageCircle className="size-4" />
+            <span className="hidden sm:inline">Open Chat</span>
+          </Button>
+        </div>
+      </PageHeader>
 
       <div className="flex-1 space-y-6 overflow-y-auto px-4 py-6 sm:px-6 md:px-8">
         {/* Welcome & Overview Banner */}
@@ -309,6 +347,242 @@ export function DashboardPage() {
               </CardContent>
             </Card>
           </Link>
+        </div>
+
+        {/* Device State & Resource Consumption */}
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-1.5">
+            <div className="flex items-center gap-2">
+              <div className="bg-primary/10 text-primary rounded-md p-1">
+                <IconServer className="size-4" />
+              </div>
+              <h3 className="text-foreground text-sm font-semibold sm:text-base">
+                Device State & Resources
+              </h3>
+            </div>
+            {deviceState && (
+              <span className="text-muted-foreground text-[11px] sm:text-xs font-mono">
+                {deviceState.os} ({deviceState.arch}) • {deviceState.num_cpu} CPUs • Up {formatUptime(deviceState.uptime_seconds)}
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 sm:gap-4">
+            {/* RAM Usage Card */}
+            <Card className="border-border/60 shadow-xs">
+              <CardContent className="space-y-3 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="rounded-lg bg-blue-500/10 p-2 text-blue-600 dark:text-blue-400">
+                      <IconCpu className="size-4.5" />
+                    </div>
+                    <div>
+                      <p className="text-foreground text-xs font-semibold sm:text-sm">
+                        RAM Usage
+                      </p>
+                      <p className="text-muted-foreground text-[11px]">
+                        {deviceState
+                          ? `${formatBytes(deviceState.ram.used_bytes)} / ${formatBytes(deviceState.ram.total_bytes)}`
+                          : "Measuring..."}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={`text-xs font-semibold ${
+                      (deviceState?.ram.used_percent ?? 0) > 85
+                        ? "border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                        : (deviceState?.ram.used_percent ?? 0) > 70
+                          ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                          : "border-blue-500/30 bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                    }`}
+                  >
+                    {deviceState?.ram.used_percent ?? 0}%
+                  </Badge>
+                </div>
+
+                {/* System Progress Bar */}
+                <div className="bg-muted h-2 w-full overflow-hidden rounded-full">
+                  <div
+                    className={`h-full transition-all duration-500 ${
+                      (deviceState?.ram.used_percent ?? 0) > 85
+                        ? "bg-rose-500"
+                        : (deviceState?.ram.used_percent ?? 0) > 70
+                          ? "bg-amber-500"
+                          : "bg-blue-500"
+                    }`}
+                    style={{
+                      width: `${Math.min(100, deviceState?.ram.used_percent ?? 0)}%`,
+                    }}
+                  />
+                </div>
+
+                {/* Sub metrics & PicoClaw usage */}
+                <div className="border-border/40 flex flex-wrap items-center justify-between gap-1 border-t pt-2 text-[11px]">
+                  <span className="text-muted-foreground">
+                    Free:{" "}
+                    <strong className="text-foreground font-medium">
+                      {formatBytes(deviceState?.ram.free_bytes)}
+                    </strong>
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground">PicoClaw:</span>
+                    <Badge
+                      variant="secondary"
+                      className="px-1.5 py-0 text-[10px] font-medium"
+                    >
+                      {formatBytes(deviceState?.ram.picoclaw_bytes)}
+                      {deviceState?.ram.picoclaw_percent
+                        ? ` (${deviceState.ram.picoclaw_percent}%)`
+                        : ""}
+                    </Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Storage State Card */}
+            <Card className="border-border/60 shadow-xs">
+              <CardContent className="space-y-3 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="rounded-lg bg-emerald-500/10 p-2 text-emerald-600 dark:text-emerald-400">
+                      <IconDatabase className="size-4.5" />
+                    </div>
+                    <div>
+                      <p className="text-foreground text-xs font-semibold sm:text-sm">
+                        Storage State
+                      </p>
+                      <p className="text-muted-foreground text-[11px]">
+                        {deviceState
+                          ? `${formatBytes(deviceState.storage.free_bytes)} Free of ${formatBytes(deviceState.storage.total_bytes)}`
+                          : "Measuring..."}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={`text-xs font-semibold ${
+                      (deviceState?.storage.used_percent ?? 0) > 90
+                        ? "border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                        : "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                    }`}
+                  >
+                    {deviceState?.storage.used_percent ?? 0}% Used
+                  </Badge>
+                </div>
+
+                {/* Storage Progress Bar */}
+                <div className="bg-muted h-2 w-full overflow-hidden rounded-full">
+                  <div
+                    className={`h-full transition-all duration-500 ${
+                      (deviceState?.storage.used_percent ?? 0) > 90
+                        ? "bg-rose-500"
+                        : "bg-emerald-500"
+                    }`}
+                    style={{
+                      width: `${Math.min(100, deviceState?.storage.used_percent ?? 0)}%`,
+                    }}
+                  />
+                </div>
+
+                {/* Sub metrics & PicoClaw footprint */}
+                <div className="border-border/40 flex flex-wrap items-center justify-between gap-1 border-t pt-2 text-[11px]">
+                  <span className="text-muted-foreground">
+                    Used:{" "}
+                    <strong className="text-foreground font-medium">
+                      {formatBytes(deviceState?.storage.used_bytes)}
+                    </strong>
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-muted-foreground">PicoClaw:</span>
+                    <Badge
+                      variant="secondary"
+                      className="px-1.5 py-0 text-[10px] font-medium"
+                    >
+                      {formatBytes(deviceState?.storage.picoclaw_bytes)}
+                      {deviceState?.storage.picoclaw_percent
+                        ? ` (${deviceState.storage.picoclaw_percent}%)`
+                        : ""}
+                    </Badge>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Device Temperature Card */}
+            <Card className="border-border/60 col-span-1 shadow-xs sm:col-span-2 lg:col-span-1">
+              <CardContent className="space-y-3 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`rounded-lg p-2 ${
+                        deviceState?.temperature.status === "hot"
+                          ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                          : deviceState?.temperature.status === "warm"
+                            ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                            : deviceState?.temperature.available
+                              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                              : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      <IconThermometer className="size-4.5" />
+                    </div>
+                    <div>
+                      <p className="text-foreground text-xs font-semibold sm:text-sm">
+                        Device Temperature
+                      </p>
+                      <p className="text-muted-foreground text-[11px]">
+                        {deviceState?.temperature.available
+                          ? `${deviceState.temperature.celsius}°C (${deviceState.temperature.fahrenheit}°F)`
+                          : "Thermal sensor"}
+                      </p>
+                    </div>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={`text-xs font-semibold capitalize ${
+                      deviceState?.temperature.status === "hot"
+                        ? "border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                        : deviceState?.temperature.status === "warm"
+                          ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                          : deviceState?.temperature.available
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                            : "border-muted text-muted-foreground"
+                    }`}
+                  >
+                    {deviceState?.temperature.available
+                      ? deviceState.temperature.status
+                      : "N/A"}
+                  </Badge>
+                </div>
+
+                <div className="flex items-baseline justify-between pt-0.5">
+                  <div className="text-foreground text-2xl font-bold tracking-tight">
+                    {deviceState?.temperature.available
+                      ? `${deviceState.temperature.celsius}°C`
+                      : "N/A"}
+                  </div>
+                  <span className="text-muted-foreground text-xs">
+                    {deviceState?.temperature.available
+                      ? deviceState.temperature.status === "hot"
+                        ? "High temperature load"
+                        : deviceState.temperature.status === "warm"
+                          ? "Moderate thermal load"
+                          : "Optimal operating temperature"
+                      : "Sensor unavailable on host"}
+                  </span>
+                </div>
+
+                <div className="border-border/40 flex items-center justify-between border-t pt-2 text-[11px]">
+                  <span className="text-muted-foreground">Thermal Zone</span>
+                  <span className="text-foreground font-mono font-medium">
+                    {deviceState?.temperature.available ? "ACPI / Zone0" : "Unavailable"}
+                  </span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
 
         {/* Channels Status Strip */}

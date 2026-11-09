@@ -1884,3 +1884,117 @@ func TestHandleGetSession_ThoughtReasoningAndAttachmentCleanFilename(t *testing.
 		t.Fatalf("finalMsg has attachments, want 0: %#v", finalMsg.Attachments)
 	}
 }
+
+func TestHandleSessionBranch_EndToEnd(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+
+	sessionKey := legacyPicoSessionPrefix + "branch-test-sess"
+	msgs := []providers.Message{
+		{Role: "user", Content: "hello from turn 1"},
+		{Role: "assistant", Content: "reply 1"},
+		{Role: "user", Content: "turn 2 prompt"},
+		{Role: "assistant", Content: "reply 2 variant B"},
+	}
+	for _, m := range msgs {
+		if err := store.AddFullMessage(nil, sessionKey, m); err != nil {
+			t.Fatalf("AddFullMessage() error = %v", err)
+		}
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	// Save branches: Turn 2 has 2 branches (variant A and variant B)
+	saveBody := `{
+		"action": "save",
+		"turns": [
+			{
+				"root_id": "turn-2-root",
+				"active_branch_index": 1,
+				"branch_type": "regeneration",
+				"branches": [
+					[
+						{"role": "user", "content": "turn 2 prompt"},
+						{"role": "assistant", "content": "reply 2 variant A"}
+					],
+					[
+						{"role": "user", "content": "turn 2 prompt"},
+						{"role": "assistant", "content": "reply 2 variant B"}
+					]
+				]
+			}
+		]
+	}`
+
+	saveReq := httptest.NewRequest(http.MethodPost, "/api/sessions/branch-test-sess/branch", strings.NewReader(saveBody))
+	saveRec := httptest.NewRecorder()
+	mux.ServeHTTP(saveRec, saveReq)
+
+	if saveRec.Code != http.StatusOK {
+		t.Fatalf("save status = %d, want %d, body = %s", saveRec.Code, http.StatusOK, saveRec.Body.String())
+	}
+
+	// Verify GET /api/sessions/{id} returns Turn 1 AND Turn 2 with branches
+	getReq := httptest.NewRequest(http.MethodGet, "/api/sessions/branch-test-sess", nil)
+	getRec := httptest.NewRecorder()
+	mux.ServeHTTP(getRec, getReq)
+
+	if getRec.Code != http.StatusOK {
+		t.Fatalf("get status = %d, want %d, body = %s", getRec.Code, http.StatusOK, getRec.Body.String())
+	}
+
+	var getResp struct {
+		Messages []sessionChatMessage `json:"messages"`
+	}
+	if err := json.NewDecoder(getRec.Body).Decode(&getResp); err != nil {
+		t.Fatalf("decode getResp error = %v", err)
+	}
+
+	// Check if Turn 1 was preserved!
+	if len(getResp.Messages) < 4 {
+		t.Fatalf("got %d messages, want at least 4 (Turn 1 was discarded!): %#v", len(getResp.Messages), getResp.Messages)
+	}
+	if getResp.Messages[0].Content != "hello from turn 1" {
+		t.Fatalf("messages[0].Content = %q, want 'hello from turn 1'", getResp.Messages[0].Content)
+	}
+	if len(getResp.Messages[2].Branches) != 2 {
+		t.Fatalf("turn 2 branches count = %d, want 2", len(getResp.Messages[2].Branches))
+	}
+
+	// Switch to branch 0 (variant A)
+	switchBody := `{
+		"action": "switch",
+		"turn_id": "turn-2-root",
+		"target_branch_index": 0
+	}`
+	switchReq := httptest.NewRequest(http.MethodPost, "/api/sessions/branch-test-sess/branch", strings.NewReader(switchBody))
+	switchRec := httptest.NewRecorder()
+	mux.ServeHTTP(switchRec, switchReq)
+
+	if switchRec.Code != http.StatusOK {
+		t.Fatalf("switch status = %d, want %d, body = %s", switchRec.Code, http.StatusOK, switchRec.Body.String())
+	}
+
+	var switchResp struct {
+		Success  bool                 `json:"success"`
+		Messages []sessionChatMessage `json:"messages"`
+	}
+	if err := json.NewDecoder(switchRec.Body).Decode(&switchResp); err != nil {
+		t.Fatalf("decode switchResp error = %v", err)
+	}
+
+	if len(switchResp.Messages) < 4 {
+		t.Fatalf("switch returned %d messages, want 4", len(switchResp.Messages))
+	}
+	if switchResp.Messages[3].Content != "reply 2 variant A" {
+		t.Fatalf("switch active assistant content = %q, want 'reply 2 variant A'", switchResp.Messages[3].Content)
+	}
+}

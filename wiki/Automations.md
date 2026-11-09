@@ -32,6 +32,9 @@ Automations can deliver their execution results to any of your configured channe
 ## 4. Managing Automations
 
 From the Automations screen, you can:
+- **Top-Right Quick Actions**: Trigger **Refresh** or create a **New Automation** directly from the top-right header. On smaller screens (smartwatches and phones), these controls collapse into clean icons to conserve screen space.
+- **Default Active View**: The automations page opens to the **Active** filter tab by default, showing your enabled schedules immediately. You can switch to **All** or **Paused** anytime.
+- **Grid and List View**: Toggle between a card grid view and a compact horizontal list view using the layout icon button next to the filter tabs.
 - **Create**: Click **New Automation** and fill in the user-friendly form.
 - **Edit**: Update the schedule, command, message, or delivery destination at any time.
 - **Enable / Pause**: Toggle tasks on or off with a single switch.

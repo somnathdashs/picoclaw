@@ -15,6 +15,7 @@ Welcome to the PicoClaw user guide! PicoClaw is an ultra-lightweight personal AI
    - Rich tool call presentation with actions and diff badges
    - Automatic collapse on completion for a clean reading view
    - Custom Model Rules (`RULES.md`) with slide-over editor and preview
+   - Right-side Browsing Panel with Gateway Profile access and live AI agent-browser reflection
 3. [[Automations]]
    - Scheduling reminders and recurring tasks
    - Running automated shell commands

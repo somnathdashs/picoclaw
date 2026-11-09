@@ -140,6 +140,15 @@ func (t *CronTool) Parameters() map[string]any {
 				"type":        "string",
 				"description": "Optional: Recipient, phone number, or chat ID to deliver output to. Defaults to current chat.",
 			},
+			"deliver": map[string]any{
+				"type":        "boolean",
+				"description": "Optional: If true, delivers message directly as a reminder without agent reasoning. Defaults to true for reminders (at_seconds).",
+			},
+			"kind": map[string]any{
+				"type":        "string",
+				"enum":        []string{"reminder", "agent_turn", "command"},
+				"description": "Optional: 'reminder' for direct reminder delivery (no LLM turn), 'agent_turn' for prompt processed by the AI assistant, or 'command' for shell command execution.",
+			},
 		},
 		"required": []string{"action"},
 	}
@@ -262,10 +271,42 @@ func (t *CronTool) addJob(ctx context.Context, args map[string]any) *ToolResult 
 		return ErrorResult(fmt.Sprintf("Error adding job: %v", err))
 	}
 
-	// Apply optional payload fields and persist in a single UpdateJob call
+	kind, _ := args["kind"].(string)
+	deliver, hasDeliver := args["deliver"].(bool)
+	if kind == "" {
+		if command != "" {
+			kind = "command"
+			deliver = false
+		} else if hasDeliver {
+			if deliver {
+				kind = "reminder"
+			} else {
+				kind = "agent_turn"
+			}
+		} else if hasAt {
+			kind = "reminder"
+			deliver = true
+		} else {
+			kind = "reminder"
+			deliver = true
+		}
+	} else if kind == "reminder" {
+		deliver = true
+	} else {
+		deliver = false
+	}
+
 	needsUpdate := false
 	if command != "" {
 		job.Payload.Command = command
+		needsUpdate = true
+	}
+	if job.Payload.Kind != kind {
+		job.Payload.Kind = kind
+		needsUpdate = true
+	}
+	if job.Payload.Deliver != deliver {
+		job.Payload.Deliver = deliver
 		needsUpdate = true
 	}
 	if needsUpdate {
@@ -394,6 +435,24 @@ func (t *CronTool) updateJob(ctx context.Context, args map[string]any) *ToolResu
 	}
 	if toPresent {
 		job.Payload.To = toStr
+		patches++
+	}
+
+	if kindStr, kindPresent, _ := optionalNonEmptyString(args, "kind"); kindPresent {
+		job.Payload.Kind = kindStr
+		if kindStr == "reminder" {
+			job.Payload.Deliver = true
+		} else if kindStr == "agent_turn" || kindStr == "command" {
+			job.Payload.Deliver = false
+		}
+		patches++
+	}
+
+	if deliverVal, ok := args["deliver"].(bool); ok {
+		job.Payload.Deliver = deliverVal
+		if deliverVal && job.Payload.Kind == "" {
+			job.Payload.Kind = "reminder"
+		}
 		patches++
 	}
 
@@ -670,6 +729,19 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
 			Context: bus.NewOutboundContext(channel, chatID, ""),
 			Content: output,
 		})
+		job.State.LastOutput = output
+		return "ok"
+	}
+
+	// Direct reminder delivery (no agent LLM reasoning)
+	if job.Payload.Kind == "reminder" || job.Payload.Deliver {
+		pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer pubCancel()
+		t.msgBus.PublishOutbound(pubCtx, bus.OutboundMessage{
+			Context: bus.NewOutboundContext(channel, chatID, ""),
+			Content: job.Payload.Message,
+		})
+		job.State.LastOutput = job.Payload.Message
 		return "ok"
 	}
 
@@ -690,5 +762,6 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
 	if response != "" {
 		t.executor.PublishResponseIfNeeded(ctx, channel, chatID, sessionKey, response)
 	}
+	job.State.LastOutput = response
 	return "ok"
 }

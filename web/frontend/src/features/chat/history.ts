@@ -1,4 +1,4 @@
-import { getSessionHistory } from "@/api/sessions"
+import { getSessionHistory, type SessionDetailMessage } from "@/api/sessions"
 import { buildWorkspaceFileUrl } from "@/api/workspace"
 import { normalizeUnixTimestamp } from "@/features/chat/state"
 import {
@@ -57,6 +57,23 @@ function toChatAttachments({
   return merged.length > 0 ? merged : undefined
 }
 
+function mapBackendBranchMessages(
+  branch: SessionDetailMessage[],
+  indexOffset: number,
+  fallbackTs: string,
+): ChatMessage[] {
+  return branch.map((m, idx) => ({
+    id: m.id || `branch-msg-${indexOffset}-${idx}`,
+    role: m.role,
+    content: m.content || "",
+    kind: m.role === "assistant" ? (m.kind ?? "normal") : undefined,
+    modelName: m.model_name,
+    toolCalls: m.role === "assistant" ? parseToolCallsValue(m.tool_calls) : undefined,
+    attachments: toChatAttachments({ media: m.media, attachments: m.attachments }),
+    timestamp: m.created_at ?? fallbackTs,
+  }))
+}
+
 export async function loadSessionMessages(
   sessionId: string,
 ): Promise<ChatMessage[]> {
@@ -90,8 +107,24 @@ export async function loadSessionMessages(
 
     content = content.replace(/(?:\r?\n)?[^\r\n]*\[(?:file|image):[^\]]+\]/g, "").trim()
 
+    const mappedBranches = message.branches && message.branches.length > 0
+      ? message.branches.map((b, bIdx) => mapBackendBranchMessages(b, bIdx, message.created_at ?? detail.updated))
+      : undefined
+
+    if (mappedBranches && mappedBranches.length > 0) {
+      for (let b = 0; b < mappedBranches.length; b++) {
+        if (mappedBranches[b][0]) {
+          mappedBranches[b][0].branches = mappedBranches
+          mappedBranches[b][0].activeBranchIndex = b
+          if (message.branch_type) {
+            mappedBranches[b][0].branchType = message.branch_type
+          }
+        }
+      }
+    }
+
     return {
-      id: `hist-${index}-${Date.now()}`,
+      id: message.id || `hist-${index}-${message.created_at ?? detail.updated}`,
       role: message.role,
       content,
       kind: message.role === "assistant" ? (message.kind ?? "normal") : undefined,
@@ -102,6 +135,9 @@ export async function loadSessionMessages(
           : undefined,
       attachments,
       timestamp: message.created_at ?? detail.updated,
+      branches: mappedBranches,
+      activeBranchIndex: message.active_branch_index ?? (mappedBranches ? mappedBranches.length - 1 : 0),
+      branchType: message.branch_type,
     }
   })
 }
@@ -120,7 +156,11 @@ function normalizeMessageTimestamp(timestamp: number | string): string {
   return Number.isNaN(parsed) ? trimmed : String(parsed)
 }
 
-function messageSignature(message: ChatMessage): string {
+// Signature WITHOUT timestamp — used for deduplication between history (backend
+// created_at timestamps) and in-memory messages (Date.now() timestamps).
+// Including the timestamp caused duplicates on tab-switch because the same
+// message has two different timestamp values in the two sources.
+function messageContentSignature(message: ChatMessage): string {
   const attachmentSignature = (message.attachments ?? [])
     .map(
       (attachment) =>
@@ -128,9 +168,7 @@ function messageSignature(message: ChatMessage): string {
     )
     .join("\u0002")
 
-  return `${message.role}\u0000${message.content}\u0000${normalizeMessageTimestamp(
-    message.timestamp,
-  )}\u0000${message.kind ?? ""}\u0000${message.modelName ?? ""}\u0000${attachmentSignature}\u0000${toolCallsSignature(
+  return `${message.role}\u0000${message.content.trim()}\u0000${message.kind ?? ""}\u0000${attachmentSignature}\u0000${toolCallsSignature(
     message.toolCalls,
   )}`
 }
@@ -145,19 +183,21 @@ export function mergeHistoryMessages(
   historyMessages: ChatMessage[],
   currentMessages: ChatMessage[],
 ): ChatMessage[] {
-  const currentIds = new Set(currentMessages.map((message) => message.id))
-  const currentSignatures = new Set(
-    currentMessages.map((message) => messageSignature(message)),
+  // Build lookup sets from history (the persisted ground truth)
+  const historyIds = new Set(historyMessages.map((m) => m.id))
+  const historyContentSigs = new Set(
+    historyMessages.map((m) => messageContentSignature(m)),
   )
 
-  const merged = [
-    ...historyMessages.filter(
-      (message) =>
-        !currentIds.has(message.id) &&
-        !currentSignatures.has(messageSignature(message)),
-    ),
-    ...currentMessages,
-  ]
+  // Only keep in-memory messages that are NOT already in history.
+  // These are truly in-flight (sent but not yet persisted / still streaming).
+  const inFlightMessages = currentMessages.filter(
+    (m) =>
+      !historyIds.has(m.id) &&
+      !historyContentSigs.has(messageContentSignature(m)),
+  )
+
+  const merged = [...historyMessages, ...inFlightMessages]
 
   return merged.sort(
     (left, right) =>

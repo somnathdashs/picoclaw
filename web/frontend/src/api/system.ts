@@ -22,6 +22,41 @@ export interface SystemVersionInfo {
   go_version: string
 }
 
+export interface StorageState {
+  total_bytes: number
+  free_bytes: number
+  used_bytes: number
+  used_percent: number
+  picoclaw_bytes: number
+  picoclaw_percent: number
+}
+
+export interface RamState {
+  total_bytes: number
+  free_bytes: number
+  used_bytes: number
+  used_percent: number
+  picoclaw_bytes: number
+  picoclaw_percent: number
+}
+
+export interface TemperatureState {
+  celsius: number
+  fahrenheit: number
+  available: boolean
+  status: "normal" | "warm" | "hot" | "unavailable"
+}
+
+export interface DeviceState {
+  storage: StorageState
+  ram: RamState
+  temperature: TemperatureState
+  os: string
+  arch: string
+  num_cpu: number
+  uptime_seconds: number
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await launcherFetch(path, options)
   if (!res.ok) {
@@ -74,4 +109,8 @@ export async function setLauncherConfig(
 
 export async function getSystemVersionInfo(): Promise<SystemVersionInfo> {
   return request<SystemVersionInfo>("/api/system/version")
+}
+
+export async function getDeviceState(): Promise<DeviceState> {
+  return request<DeviceState>("/api/system/device-state")
 }

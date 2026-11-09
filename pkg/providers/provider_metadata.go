@@ -254,7 +254,6 @@ var modelProviderOptionsByName = map[string]ModelProviderOption{
 	"azure": {
 		ID:                  "azure",
 		DisplayName:         "Azure OpenAI",
-		IconSlug:            "microsoftazure",
 		Domain:              "azure.com",
 		CreateAllowed:       true,
 		DefaultModelAllowed: true,

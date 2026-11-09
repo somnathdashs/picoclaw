@@ -74,3 +74,8 @@ docker/data
 
 .omc/
 .worktrees/
+
+# Dev hot-reload temp files
+web/.air.toml
+web/.tmp/
+build/picoclaw-dev.exe

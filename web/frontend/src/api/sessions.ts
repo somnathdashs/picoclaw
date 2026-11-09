@@ -15,37 +15,43 @@ export interface SessionSummary {
   match_snippet?: string
 }
 
-export interface SessionDetail {
-  id: string
-  messages: {
-    role: "user" | "assistant"
-    content: string
-    created_at?: string
-    kind?: "normal" | "thought" | "tool_calls"
-    model_name?: string
-    media?: string[]
-    attachments?: {
-      type?: "image" | "audio" | "video" | "file"
-      url: string
-      filename?: string
-      content_type?: string
-    }[]
-    tool_calls?: {
-      id?: string
-      type?: string
-      function?: {
-        name?: string
-        arguments?: string
-      }
-      extra_content?: {
-        tool_feedback_explanation?: string
-        result?: unknown
-        output?: unknown
-      }
+export interface SessionDetailMessage {
+  id?: string
+  role: "user" | "assistant"
+  content: string
+  created_at?: string
+  kind?: "normal" | "thought" | "tool_calls"
+  model_name?: string
+  media?: string[]
+  attachments?: {
+    type?: "image" | "audio" | "video" | "file"
+    url: string
+    filename?: string
+    content_type?: string
+  }[]
+  tool_calls?: {
+    id?: string
+    type?: string
+    function?: {
+      name?: string
+      arguments?: string
+    }
+    extra_content?: {
+      tool_feedback_explanation?: string
       result?: unknown
       output?: unknown
-    }[]
+    }
+    result?: unknown
+    output?: unknown
   }[]
+  branches?: SessionDetailMessage[][]
+  active_branch_index?: number
+  branch_type?: "regeneration" | "edit"
+}
+
+export interface SessionDetail {
+  id: string
+  messages: SessionDetailMessage[]
   summary: string
   created: string
   updated: string
@@ -192,6 +198,51 @@ export async function deleteSession(id: string): Promise<void> {
     throw new Error(`Failed to delete session ${id}: ${res.status}`)
   }
   removeCachedSession(id)
+}
+
+export interface SessionBranchTurn {
+  root_id: string
+  active_branch_index: number
+  branch_type: string
+  branches: SessionDetailMessage[][]
+}
+
+export async function switchSessionBranch(
+  sessionId: string,
+  turnId: string,
+  targetBranchIndex: number,
+): Promise<{ success: boolean; messages?: SessionDetailMessage[] }> {
+  const res = await launcherFetch(`/api/sessions/${encodeURIComponent(sessionId)}/branch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "switch",
+      turn_id: turnId,
+      target_branch_index: targetBranchIndex,
+    }),
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to switch branch: ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function saveSessionBranchTurns(
+  sessionId: string,
+  turns: SessionBranchTurn[],
+): Promise<{ success: boolean }> {
+  const res = await launcherFetch(`/api/sessions/${encodeURIComponent(sessionId)}/branch`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "save",
+      turns,
+    }),
+  })
+  if (!res.ok) {
+    throw new Error(`Failed to save branch turns: ${res.status}`)
+  }
+  return res.json()
 }
 
 export async function clearSessions(type?: string): Promise<{ deleted: number }> {

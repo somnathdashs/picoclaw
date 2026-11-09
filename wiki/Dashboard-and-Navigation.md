@@ -8,6 +8,8 @@ This guide introduces the PicoClaw dashboard interface, how the navigation menu 
 
 The **Dashboard** (`/dashboard`) serves as your central command station. From this page, you can:
 - **Control the Gateway**: Check whether the background engine is running, starting, or stopped, and start or stop it with a single click.
+- **Top-Right Quick Actions**: Quickly refresh data or jump straight into the chat view via the **Refresh** and **Open Chat** buttons located in the top-right header. On smaller displays like smartwatches and smartphones, they collapse to clean icons to maximize viewing area.
+- **Device State & Resource Usage**: Monitor live system health including total, used, and free RAM, available storage capacity, device thermal readings (in Celsius and Fahrenheit with status indicators), host specifications (OS, architecture, CPU count, uptime), and exact memory/storage consumed by PicoClaw.
 - **View Active AI Models**: See which language model is currently active and ready to answer queries.
 - **Monitor Automations**: Check how many scheduled tasks and commands are currently active.
 - **Channel Shortcuts**: Quickly see the connection status of your favorite channels (WhatsApp, Telegram, Discord, Slack) and jump directly to their settings.

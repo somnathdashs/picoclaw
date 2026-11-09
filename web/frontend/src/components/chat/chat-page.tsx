@@ -4,6 +4,7 @@ import {
   IconGhost,
   IconPlus,
   IconScale,
+  IconWorld,
 } from "@tabler/icons-react"
 import dayjs from "dayjs"
 import relativeTime from "dayjs/plugin/relativeTime"
@@ -31,7 +32,9 @@ import {
 import { ChatEmptyState } from "@/components/chat/chat-empty-state"
 import { ModelSelector } from "@/components/chat/model-selector"
 import { RulesPanel } from "@/components/chat/rules-panel"
+import { BrowsingPanel } from "@/components/chat/browsing-panel"
 import { FilePreviewPanel, type PreviewableFile } from "@/components/chat/file-preview-panel"
+import { useAgentBrowserTracker } from "@/features/chat/agent-browser-tracker"
 import { TypingIndicator } from "@/components/chat/typing-indicator"
 import { UserMessage } from "@/components/chat/user-message"
 import { PageHeader } from "@/components/page-header"
@@ -406,6 +409,7 @@ export function ChatPage() {
   )
   const [isConfirmingExitTemp, setIsConfirmingExitTemp] = useState(false)
   const [rulesOpen, setRulesOpen] = useState(false)
+  const [browserPanelOpen, setBrowserPanelOpen] = useState(false)
   const [previewFile, setPreviewFile] = useState<PreviewableFile | null>(null)
   const { speakingMessageId, speak, ttsSettings } = useSpeechSynthesis()
   const [lastInputWasVoice, setLastInputWasVoice] = useAtom(lastInputWasVoiceAtom)
@@ -473,6 +477,19 @@ export function ChatPage() {
 
     return false
   }, [connectionState, isTyping, messages])
+
+  const agentBrowserActivity = useAgentBrowserTracker(messages, isAgentWorking)
+  const prevBrowsingActiveRef = useRef(false)
+
+  // Auto-open browsing panel when agent-browser starts executing
+  useEffect(() => {
+    if (agentBrowserActivity.isBrowsingActive && !prevBrowsingActiveRef.current) {
+      setBrowserPanelOpen(true)
+      setRulesOpen(false)
+      setPreviewFile(null)
+    }
+    prevBrowsingActiveRef.current = agentBrowserActivity.isBrowsingActive
+  }, [agentBrowserActivity.isBrowsingActive])
 
   const groupedChatItems = useMemo(
     () => groupChatMessages(messages, isAgentWorking),
@@ -950,6 +967,35 @@ export function ChatPage() {
           <span className="hidden sm:inline">New Chat</span>
         </Button>
 
+        {/* Browser Toggle Button */}
+        <Button
+          variant={browserPanelOpen ? "secondary" : "outline"}
+          size="sm"
+          onClick={() => {
+            setBrowserPanelOpen((prev) => {
+              const next = !prev
+              if (next) {
+                setRulesOpen(false)
+                setPreviewFile(null)
+              }
+              return next
+            })
+          }}
+          className={`h-8 gap-1.5 px-2 sm:px-2.5 text-xs shrink-0 shadow-xs transition-colors relative ${
+            browserPanelOpen
+              ? "bg-accent text-accent-foreground border-primary/40 ring-1 ring-primary/20"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          title="Browsing Panel (Gateway Profile & AI Browser)"
+          aria-label="Browsing Panel"
+        >
+          <IconWorld className="size-3.5 sm:size-4" />
+          <span className="hidden sm:inline">Browser</span>
+          {agentBrowserActivity.isBrowsingActive && (
+            <span className="size-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
+          )}
+        </Button>
+
         {/* More options 3-dot button AFTER New Chat button */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -967,12 +1013,44 @@ export function ChatPage() {
               <IconDotsVertical className="size-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48 p-1">
+          <DropdownMenuContent align="end" className="w-52 p-1">
+            <DropdownMenuItem
+              onClick={() => {
+                setBrowserPanelOpen((prev) => {
+                  const next = !prev
+                  if (next) {
+                    setRulesOpen(false)
+                    setPreviewFile(null)
+                  }
+                  return next
+                })
+              }}
+              className="gap-2.5 cursor-pointer py-2"
+            >
+              <div className="size-6 rounded-md bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <IconWorld className="size-3.5" />
+              </div>
+              <div className="flex flex-col flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-xs">Browser</span>
+                  {browserPanelOpen && (
+                    <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4">
+                      Active
+                    </Badge>
+                  )}
+                </div>
+                <span className="text-[10px] text-muted-foreground">Gateway & agent-browser</span>
+              </div>
+            </DropdownMenuItem>
+
             <DropdownMenuItem
               onClick={() => {
                 setRulesOpen((prev) => {
                   const next = !prev
-                  if (next) setPreviewFile(null)
+                  if (next) {
+                    setBrowserPanelOpen(false)
+                    setPreviewFile(null)
+                  }
                   return next
                 })
               }}
@@ -1004,7 +1082,7 @@ export function ChatPage() {
             ref={scrollRef}
             onScroll={handleScroll}
             className={`min-h-0 flex-1 [scrollbar-gutter:stable] overflow-y-auto px-4 py-6 md:px-8 ${
-              rulesOpen ? "lg:px-12 xl:px-20" : "lg:px-24 xl:px-48"
+              rulesOpen || browserPanelOpen ? "lg:px-12 xl:px-20" : "lg:px-24 xl:px-48"
             }`}
           >
         <div className="mx-auto flex w-full max-w-250 flex-col gap-8 pb-8">
@@ -1195,17 +1273,17 @@ export function ChatPage() {
                     hideHeader={hasPrecedingWork || isFollowUpAssistant}
                     showBottomActions={isLastAssistantInTurn}
                     copyContent={turnAssistantContent}
-                    totalBranches={
-                      !isTurnEditBranch
-                        ? (item.turnUserMessage?.branches?.length ?? 1)
-                        : 1
-                    }
-                    currentBranchIndex={
-                      item.turnUserMessage?.activeBranchIndex ?? 0
-                    }
+                    totalBranches={item.turnUserMessage?.branches?.length ?? 1}
+                    currentBranchIndex={Math.max(
+                      0,
+                      Math.min(
+                        item.turnUserMessage?.activeBranchIndex ?? 0,
+                        (item.turnUserMessage?.branches?.length ?? 1) - 1,
+                      ),
+                    )}
                     isBranchLocked={isAgentWorking}
                     onSwitchBranch={
-                      item.turnUserMessage
+                      item.turnUserMessage?.branches && item.turnUserMessage.branches.length > 1
                         ? (targetIndex) =>
                             handleSwitchBranch(
                               item.turnUserMessage!.id,
@@ -1228,13 +1306,20 @@ export function ChatPage() {
                     content={message.content}
                     attachments={message.attachments}
                     timestamp={message.timestamp}
-                    totalBranches={
-                      isUserEditBranch ? (message.branches?.length ?? 1) : 1
-                    }
-                    currentBranchIndex={message.activeBranchIndex ?? 0}
+                    totalBranches={message.branches?.length ?? 1}
+                    currentBranchIndex={Math.max(
+                      0,
+                      Math.min(
+                        message.activeBranchIndex ?? 0,
+                        (message.branches?.length ?? 1) - 1,
+                      ),
+                    )}
                     isBranchLocked={isAgentWorking}
-                    onSwitchBranch={(targetIndex) =>
-                      handleSwitchBranch(message.id, targetIndex)
+                    onSwitchBranch={
+                      message.branches && message.branches.length > 1
+                        ? (targetIndex) =>
+                            handleSwitchBranch(message.id, targetIndex)
+                        : undefined
                     }
                     onEdit={(newText) =>
                       handleEditUserMessage(message.id, newText)
@@ -1322,7 +1407,13 @@ export function ChatPage() {
         {rulesOpen && (
           <RulesPanel onClose={() => setRulesOpen(false)} />
         )}
-        {previewFile && !rulesOpen && (
+        {browserPanelOpen && !rulesOpen && (
+          <BrowsingPanel
+            onClose={() => setBrowserPanelOpen(false)}
+            agentActivity={agentBrowserActivity}
+          />
+        )}
+        {previewFile && !rulesOpen && !browserPanelOpen && (
           <FilePreviewPanel
             file={previewFile}
             onClose={() => setPreviewFile(null)}

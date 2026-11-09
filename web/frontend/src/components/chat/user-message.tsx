@@ -252,7 +252,7 @@ export function UserMessage({
 
       {!isEditing && (
         <div className="flex flex-col items-end gap-1">
-          <div className="flex items-center gap-1 sm:gap-1.5">
+          <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap justify-end">
             {totalBranches > 1 && (
               <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-muted/50 border border-border/40 text-[11px] font-mono select-none">
                 <Button
