@@ -1,6 +1,7 @@
 package oauthprovider
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -138,5 +139,25 @@ func TestBuildRequest_PreservesComplexToolSchemasByDefault(t *testing.T) {
 	}
 	if got["$defs"] == nil {
 		t.Fatalf("parameters = %#v, want raw schema with $defs preserved by default", got)
+	}
+}
+
+func TestGetAntigravityUserAgentAndVersion(t *testing.T) {
+	t.Setenv("PICOCLAW_ANTIGRAVITY_VERSION", "")
+	t.Setenv("ANTIGRAVITY_VERSION", "")
+
+	ver := getAntigravityVersion()
+	if ver != "2.8.1" {
+		t.Fatalf("expected default version 2.8.1, got %s", ver)
+	}
+
+	ua := getAntigravityUserAgent()
+	if !strings.HasPrefix(ua, "antigravity/2.8.1") {
+		t.Fatalf("expected UA to start with antigravity/2.8.1, got %s", ua)
+	}
+
+	t.Setenv("PICOCLAW_ANTIGRAVITY_VERSION", "2.9.0")
+	if got := getAntigravityVersion(); got != "2.9.0" {
+		t.Fatalf("expected overridden version 2.9.0, got %s", got)
 	}
 }

@@ -56,12 +56,17 @@ function parseAttachments(
       typeof attachment.content_type === "string"
         ? attachment.content_type
         : undefined
+    const size =
+      typeof attachment.size === "number" && attachment.size >= 0
+        ? attachment.size
+        : undefined
 
     attachments.push({
       type,
       url,
       ...(filename ? { filename } : {}),
       ...(contentType ? { contentType } : {}),
+      ...(size !== undefined ? { size } : {}),
     })
   }
 

@@ -9,6 +9,8 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -22,8 +24,30 @@ const (
 	antigravityDefaultModel = "gemini-3-flash"
 	antigravityUserAgent    = "antigravity"
 	antigravityXGoogClient  = "google-cloud-sdk vscode_cloudshelleditor/0.1"
-	antigravityVersion      = "1.15.8"
+	antigravityVersion      = "2.8.1"
 )
+
+func getAntigravityVersion() string {
+	if v := os.Getenv("PICOCLAW_ANTIGRAVITY_VERSION"); v != "" {
+		return v
+	}
+	if v := os.Getenv("ANTIGRAVITY_VERSION"); v != "" {
+		return v
+	}
+	return antigravityVersion
+}
+
+func getAntigravityUserAgent() string {
+	osName := runtime.GOOS
+	if osName == "" {
+		osName = "linux"
+	}
+	arch := runtime.GOARCH
+	if arch == "" {
+		arch = "amd64"
+	}
+	return fmt.Sprintf("antigravity/%s %s/%s", getAntigravityVersion(), osName, arch)
+}
 
 // AntigravityProvider implements LLMProvider using Google's Cloud Code Assist (Antigravity) API.
 // This provider authenticates via Google OAuth and provides access to models like Claude and Gemini
@@ -80,7 +104,7 @@ func (p *AntigravityProvider) Chat(
 		"model":       model,
 		"request":     innerRequest,
 		"requestType": "agent",
-		"userAgent":   antigravityUserAgent,
+		"userAgent":   getAntigravityUserAgent(),
 		"requestId":   fmt.Sprintf("agent-%d-%s", time.Now().UnixMilli(), randomString(9)),
 	}
 
@@ -106,7 +130,7 @@ func (p *AntigravityProvider) Chat(
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("User-Agent", fmt.Sprintf("antigravity/%s linux/amd64", antigravityVersion))
+	req.Header.Set("User-Agent", getAntigravityUserAgent())
 	req.Header.Set("X-Goog-Api-Client", antigravityXGoogClient)
 	req.Header.Set("Client-Metadata", string(clientMetadata))
 
@@ -518,8 +542,14 @@ func FetchAntigravityProjectID(accessToken string) (string, error) {
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", antigravityUserAgent)
+	req.Header.Set("User-Agent", getAntigravityUserAgent())
 	req.Header.Set("X-Goog-Api-Client", antigravityXGoogClient)
+	clientMetadata, _ := json.Marshal(map[string]string{
+		"ideType":    "IDE_UNSPECIFIED",
+		"platform":   "PLATFORM_UNSPECIFIED",
+		"pluginType": "GEMINI",
+	})
+	req.Header.Set("Client-Metadata", string(clientMetadata))
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
@@ -562,8 +592,14 @@ func FetchAntigravityModels(accessToken, projectID string) ([]AntigravityModelIn
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", antigravityUserAgent)
+	req.Header.Set("User-Agent", getAntigravityUserAgent())
 	req.Header.Set("X-Goog-Api-Client", antigravityXGoogClient)
+	clientMetadata, _ := json.Marshal(map[string]string{
+		"ideType":    "IDE_UNSPECIFIED",
+		"platform":   "PLATFORM_UNSPECIFIED",
+		"pluginType": "GEMINI",
+	})
+	req.Header.Set("Client-Metadata", string(clientMetadata))
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
@@ -673,6 +709,9 @@ func (p *AntigravityProvider) parseAntigravityError(statusCode int, body []byte)
 	}
 
 	msg := errResp.Error.Message
+	if strings.Contains(strings.ToLower(msg), "no longer supported") || strings.Contains(strings.ToLower(msg), "update to receive") {
+		return fmt.Errorf("antigravity client version deprecated: %s (set PICOCLAW_ANTIGRAVITY_VERSION environment variable to override)", msg)
+	}
 	if statusCode == 429 {
 		// Try to extract quota reset info
 		for _, detail := range errResp.Error.Details {

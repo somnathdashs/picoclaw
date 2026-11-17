@@ -139,6 +139,9 @@ function formatToolActionName(
   if (n.includes("run_command") || n.includes("exec") || n.includes("bash")) {
     return isExecuting ? "Running command…" : "Ran command"
   }
+  if (n.includes("send_file")) {
+    return isExecuting ? "Sending file…" : "Sent file"
+  }
   if (n.includes("view_file") || n.includes("read_file")) {
     return isExecuting ? "Viewing file…" : "Viewed file"
   }
@@ -1074,6 +1077,21 @@ interface AssistantMessageProps {
   onPreviewFile?: (file: ChatAttachment) => void
 }
 
+function formatFileSize(bytes?: number): string {
+  if (bytes === undefined || bytes === null || bytes <= 0) return "0 B"
+  const units = ["B", "KB", "MB", "GB"]
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  const size = (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)
+  return `${size} ${units[i] || "B"}`
+}
+
+function getAttachmentDownloadUrl(url?: string): string {
+  if (!url) return ""
+  if (url.startsWith("data:") || url.startsWith("blob:")) return url
+  const sep = url.includes("?") ? "&" : "?"
+  return `${url}${sep}download=1`
+}
+
 export function AssistantMessage({
   id,
   content,
@@ -1379,7 +1397,7 @@ export function AssistantMessage({
             <div
               key={`${attachment.url}-${index}`}
               onClick={() => onPreviewFile?.(attachment)}
-              className="group/file border-border/60 bg-card flex w-fit max-w-sm min-w-[220px] items-center gap-3.5 rounded-xl border px-4 py-3 transition-all duration-300 hover:-translate-y-0.5 hover:border-violet-500/30 hover:shadow-sm dark:hover:border-violet-500/40 cursor-pointer text-left"
+              className="group/file border-border/60 bg-card flex w-full sm:w-fit max-w-sm min-w-0 sm:min-w-[220px] items-center gap-3.5 rounded-xl border px-3 sm:px-4 py-2.5 sm:py-3 transition-all duration-300 hover:-translate-y-0.5 hover:border-violet-500/30 hover:shadow-sm dark:hover:border-violet-500/40 cursor-pointer text-left"
               title={attachment.filename || "View file preview"}
             >
               <FileExtensionBadge
@@ -1397,17 +1415,12 @@ export function AssistantMessage({
                       "FILE"}
                   </span>
                   {typeof attachment.size === "number" && attachment.size > 0 && (
-                    <span>
-                      •{" "}
-                      {attachment.size < 1024
-                        ? `${attachment.size} B`
-                        : `${Math.round(attachment.size / 1024)} KB`}
-                    </span>
+                    <span>• {formatFileSize(attachment.size)}</span>
                   )}
                 </span>
               </div>
               <a
-                href={attachment.url}
+                href={getAttachmentDownloadUrl(attachment.url)}
                 download={attachment.filename}
                 onClick={(e) => e.stopPropagation()}
                 className="bg-muted/60 text-muted-foreground/50 dark:bg-muted/20 flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-all duration-300 group-hover/file:bg-violet-400 group-hover/file:text-white group-hover/file:shadow-sm dark:group-hover/file:bg-violet-400"

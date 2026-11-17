@@ -59,6 +59,10 @@ If you are deploying via Coolify or Docker, follow these steps to test:
 ## 4. Troubleshooting
 
 *   **Empty Response**: If a model returns an empty reply, it may be restricted for your project. Try `gemini-3-flash` or `claude-opus-4-6-thinking`.
+*   **Version Deprecated / Unsupported Client**: Google Cloud Code Assist requires modern Antigravity 2.x versions (default `2.8.1`). If Google deprecates a version, set the environment variable:
+    ```bash
+    export PICOCLAW_ANTIGRAVITY_VERSION="2.8.1"
+    ```
 *   **429 Rate Limit**: Antigravity has strict quotas. PicoClaw will display the "reset time" in the error message if you hit a limit.
 *   **404 Not Found**: Ensure you are using a model ID from the `picoclaw auth models` list. Use the short ID (e.g., `gemini-3-flash`) not the full path.
 

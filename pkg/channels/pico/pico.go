@@ -800,11 +800,17 @@ func (c *PicoChannel) SendMedia(ctx context.Context, msg bus.OutboundMediaMessag
 			continue
 		}
 
+		var size int64
+		if fi, err := os.Stat(localPath); err == nil {
+			size = fi.Size()
+		}
+
 		attachments = append(attachments, map[string]any{
 			"type":         attachmentType,
 			"url":          attachmentURL,
 			"filename":     filename,
 			"content_type": contentType,
+			"size":         size,
 		})
 
 		if caption == "" && strings.TrimSpace(part.Caption) != "" {
@@ -877,17 +883,6 @@ func picoInferAttachmentType(filename, contentType string) string {
 	}
 }
 
-func picoAllowsInlineDisplay(filename, contentType string) bool {
-	contentType = strings.ToLower(strings.TrimSpace(contentType))
-	filename = strings.ToLower(strings.TrimSpace(filename))
-
-	if strings.Contains(contentType, "svg") || filepath.Ext(filename) == ".svg" {
-		return false
-	}
-
-	return picoInferAttachmentType(filename, contentType) == "image"
-}
-
 func (c *PicoChannel) handleMediaDownload(w http.ResponseWriter, r *http.Request) {
 	if !c.IsRunning() {
 		http.Error(w, "channel not running", http.StatusServiceUnavailable)
@@ -938,9 +933,9 @@ func (c *PicoChannel) handleMediaDownload(w http.ResponseWriter, r *http.Request
 		contentType = "application/octet-stream"
 	}
 
-	dispositionType := "attachment"
-	if picoAllowsInlineDisplay(filename, contentType) {
-		dispositionType = "inline"
+	dispositionType := "inline"
+	if r.URL.Query().Get("download") == "1" || r.URL.Query().Get("download") == "true" {
+		dispositionType = "attachment"
 	}
 
 	if cd := mime.FormatMediaType(dispositionType, map[string]string{"filename": filename}); cd != "" {

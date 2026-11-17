@@ -70,6 +70,14 @@ function renderSpecialQueryTokens(text: string, inTerminalMode: boolean) {
   return elements
 }
 
+function formatFileSize(bytes?: number): string {
+  if (bytes === undefined || bytes === null || bytes <= 0) return "0 B"
+  const units = ["B", "KB", "MB", "GB"]
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  const size = (bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)
+  return `${size} ${units[i] || "B"}`
+}
+
 export function UserMessage({
   content,
   attachments = [],
@@ -139,7 +147,7 @@ export function UserMessage({
               type="button"
               key={`${attachment.filename || attachment.url}-${index}`}
               onClick={() => onPreviewFile?.(attachment)}
-              className="flex items-center gap-2.5 rounded-xl border border-border/70 bg-card/90 px-3 py-2 text-xs shadow-2xs transition-all hover:border-primary/50 hover:bg-muted/40 active:scale-[0.98] cursor-pointer text-left"
+              className="flex items-center gap-2.5 rounded-xl border border-border/70 bg-card/90 px-3 py-2 text-xs shadow-2xs transition-all hover:border-primary/50 hover:bg-muted/40 active:scale-[0.98] cursor-pointer text-left w-full sm:w-auto min-w-0"
               title={attachment.filename || "View file preview"}
             >
               <FileExtensionBadge
@@ -154,7 +162,7 @@ export function UserMessage({
                 <div className="text-[10px] text-muted-foreground flex items-center gap-1">
                   <span>Workspace file</span>
                   {typeof attachment.size === "number" && attachment.size > 0 && (
-                    <span>• {attachment.size < 1024 ? `${attachment.size} B` : `${Math.round(attachment.size / 1024)} KB`}</span>
+                    <span>• {formatFileSize(attachment.size)}</span>
                   )}
                 </div>
               </div>

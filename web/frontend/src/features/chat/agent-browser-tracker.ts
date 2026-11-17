@@ -49,9 +49,8 @@ export interface AgentBrowserActivity {
   profile?: string
   sessionName?: string
   screenshotUrl?: string
+  streamPort?: number
 }
-
-const DEFAULT_GATEWAY_URL = "http://127.0.0.1:18790"
 
 // Parse interactive elements from agent-browser snapshot text
 export function parseSnapshotElements(text: string): AgentBrowserElement[] {
@@ -101,11 +100,14 @@ function parseCommandLine(cmd: string): {
   const sessionMatch = trimmed.match(/--(?:session|session-name)\s+([^\s]+)/)
   const sessionName = sessionMatch ? sessionMatch[1] : undefined
 
-  const urlMatch = trimmed.match(/(?:open|--url)\s+["']?(https?:\/\/[^\s"']+)["']?/i)
-  const url = urlMatch ? urlMatch[1] : undefined
+  const urlMatch = trimmed.match(/(?:open|goto|navigate|--url)\s+["']?([^\s"']+)["']?/i)
+  let url = urlMatch ? urlMatch[1] : undefined
+  if (url && !/^https?:\/\//i.test(url) && !url.startsWith("/")) {
+    url = `https://${url}`
+  }
 
   let action: AgentBrowserAction = "other"
-  if (/\bopen\b/i.test(trimmed)) action = "open"
+  if (/\b(?:open|goto|navigate)\b/i.test(trimmed)) action = "open"
   else if (/\bsnapshot\b/i.test(trimmed)) action = "snapshot"
   else if (/\bclick\b/i.test(trimmed)) action = "click"
   else if (/\bfill\b/i.test(trimmed)) action = "fill"
@@ -135,12 +137,13 @@ export function extractAgentBrowserActivity(
   isTurnStreaming = false,
 ): AgentBrowserActivity {
   const steps: AgentBrowserStep[] = []
-  let activeUrl = DEFAULT_GATEWAY_URL
-  let activeTitle = "Gateway Profile"
+  let activeUrl = ""
+  let activeTitle = ""
   let latestElements: AgentBrowserElement[] = []
   let activeProfile: string | undefined
   let activeSessionName: string | undefined
   let screenshotUrl: string | undefined
+  let streamPort: number | undefined
 
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]
@@ -153,6 +156,8 @@ export function extractAgentBrowserActivity(
       const rawArgs = tc.function?.arguments || ""
 
       let commandStr = ""
+      let directUrl = ""
+      let directAction: AgentBrowserAction | undefined
       try {
         const parsed = JSON.parse(rawArgs)
         commandStr =
@@ -160,6 +165,13 @@ export function extractAgentBrowserActivity(
           parsed.CommandLine ||
           parsed.cmd ||
           (typeof parsed.action === "string" ? `${parsed.action} ${parsed.url || ""}` : "")
+        if (parsed.url && typeof parsed.url === "string") {
+          directUrl = parsed.url
+          directAction = "open"
+        }
+        if (parsed.port || parsed.streamPort) {
+          streamPort = Number(parsed.port || parsed.streamPort)
+        }
       } catch {
         commandStr = rawArgs
       }
@@ -168,6 +180,8 @@ export function extractAgentBrowserActivity(
         funcName.includes("agent-browser") ||
         funcName.includes("agent_browser") ||
         funcName.includes("browser") ||
+        funcName.includes("web_fetch") ||
+        funcName.includes("webfetch") ||
         commandStr.includes("agent-browser")
 
       if (!isBrowserTool) continue
@@ -182,11 +196,22 @@ export function extractAgentBrowserActivity(
         ""
 
       const parsedCmd = parseCommandLine(commandStr)
-      if (parsedCmd.url) activeUrl = parsedCmd.url
+      const effectiveUrl = directUrl || parsedCmd.url
+      const effectiveAction = directAction || parsedCmd.action
+
+      if (effectiveUrl) activeUrl = effectiveUrl
       if (parsedCmd.profile) activeProfile = parsedCmd.profile
       if (parsedCmd.sessionName) activeSessionName = parsedCmd.sessionName
 
-      if (parsedCmd.action === "snapshot" || output.includes("@e1")) {
+      // Check output for navigated URL
+      const urlInOutput = output.match(/(?:URL|navigated to|Page):\s*["']?(https?:\/\/[^\s"'\n\r]+)/i)
+      if (urlInOutput) activeUrl = urlInOutput[1]
+
+      // Check output for stream port
+      const portMatch = output.match(/(?:stream port|ws:\/\/127\.0\.0\.1:|"port":\s*)(\d{4,5})/i)
+      if (portMatch) streamPort = Number(portMatch[1])
+
+      if (effectiveAction === "snapshot" || output.includes("@e1")) {
         const foundElems = parseSnapshotElements(output)
         if (foundElems.length > 0) latestElements = foundElems
       }
@@ -197,7 +222,10 @@ export function extractAgentBrowserActivity(
       const imgMatch = output.match(/(https?:\/\/[^\s"']+\.(?:png|jpg|jpeg|webp))|(data:image\/[a-z]+;base64,[^\s"']+)|(\/[^\s"']+\.(?:png|jpg|jpeg|webp))/i)
       if (imgMatch) screenshotUrl = imgMatch[0]
 
-      const isExecuting = Boolean(isTurnStreaming && isLastMessage && tIdx === toolCalls.length - 1)
+      const isExecuting = Boolean(
+        (isTurnStreaming && isLastMessage && tIdx === toolCalls.length - 1) ||
+        (!output && (isTurnStreaming || isLastMessage))
+      )
       const hasError = output.toLowerCase().includes("error") || output.toLowerCase().includes("failed")
 
       const ts =
@@ -207,9 +235,9 @@ export function extractAgentBrowserActivity(
 
       steps.push({
         id: tc.id || `step-${steps.length}`,
-        action: parsedCmd.action,
-        command: commandStr || `agent-browser ${parsedCmd.action}`,
-        url: parsedCmd.url,
+        action: effectiveAction,
+        command: commandStr || `agent-browser ${effectiveAction}`,
+        url: effectiveUrl,
         ref: parsedCmd.ref,
         value: parsedCmd.value,
         output,
@@ -233,6 +261,7 @@ export function extractAgentBrowserActivity(
     profile: activeProfile,
     sessionName: activeSessionName,
     screenshotUrl,
+    streamPort,
   }
 }
 

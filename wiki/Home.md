@@ -33,4 +33,8 @@ Welcome to the PicoClaw user guide! PicoClaw is an ultra-lightweight personal AI
 6. [[Skills]]
    - Built-in skills including Handle Any PDF Works (`handle-any-pdf-works`)
    - Text extraction, OCR for scans, table reading, and PDF editing
+7. [[Credentials]]
+   - Three core providers: OpenAI, Anthropic, and Google Antigravity
+   - Browser OAuth, Device Code activation, and direct API token entry
+   - Automatic token refreshing and client version management
 

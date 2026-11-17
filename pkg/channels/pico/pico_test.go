@@ -907,6 +907,9 @@ func TestSendMedia_IncludesCaptionAndAttachmentsInSinglePayload(t *testing.T) {
 		if got := attachment["filename"]; got != "photo.png" {
 			t.Fatalf("attachment filename = %#v, want photo.png", got)
 		}
+		if got, ok := attachment["size"].(float64); !ok || int64(got) != int64(len("png-body")) {
+			t.Fatalf("attachment size = %#v, want %d", attachment["size"], len("png-body"))
+		}
 	case <-time.After(time.Second):
 		t.Fatal("expected media payload to be delivered")
 	}
@@ -960,6 +963,17 @@ func TestHandleMediaDownload_ServesStoredFile(t *testing.T) {
 	}
 	if got := rec.Header().Get("Content-Type"); got != "text/plain" {
 		t.Fatalf("Content-Type = %q, want %q", got, "text/plain")
+	}
+	if got := rec.Header().Get("Content-Disposition"); got != "inline; filename=report.txt" {
+		t.Fatalf("Content-Disposition = %q, want %q", got, "inline; filename=report.txt")
+	}
+
+	downloadReq := httptest.NewRequest("GET", "/pico/media/"+refID+"?download=1", nil)
+	downloadReq.Header.Set("Authorization", "Bearer test-token")
+	downloadRec := httptest.NewRecorder()
+	ch.ServeHTTP(downloadRec, downloadReq)
+	if got := downloadRec.Header().Get("Content-Disposition"); got != "attachment; filename=report.txt" {
+		t.Fatalf("download Content-Disposition = %q, want %q", got, "attachment; filename=report.txt")
 	}
 }
 

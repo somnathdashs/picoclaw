@@ -2,6 +2,7 @@ package api
 
 import (
 	"compress/gzip"
+	"compress/zlib"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,7 +14,6 @@ import (
 	"github.com/sipeed/picoclaw/pkg/logger"
 )
 
-// registerProxyRoutes registers web browsing proxy endpoints.
 func (h *Handler) registerProxyRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/proxy/browse", h.handleBrowseProxy)
 	mux.HandleFunc("POST /api/proxy/browse", h.handleBrowseProxy)
@@ -87,7 +87,6 @@ func (h *Handler) handleBrowseProxy(w http.ResponseWriter, r *http.Request) {
 	outReq.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36")
 	outReq.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
 	outReq.Header.Set("Accept-Language", "en-US,en;q=0.9")
-	outReq.Header.Set("Accept-Encoding", "identity")
 
 	gw := h.gatewayProxyURL()
 	if parsedTarget.Host == gw.Host || strings.HasPrefix(parsedTarget.Host, "127.0.0.1:18790") || strings.HasPrefix(parsedTarget.Host, "localhost:18790") {
@@ -106,6 +105,28 @@ func (h *Handler) handleBrowseProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
+	// Decompress response body if needed
+	var reader io.Reader = resp.Body
+	contentEncoding := strings.ToLower(resp.Header.Get("Content-Encoding"))
+	if strings.Contains(contentEncoding, "gzip") {
+		if gz, gzErr := gzip.NewReader(resp.Body); gzErr == nil {
+			defer gz.Close()
+			reader = gz
+		}
+	} else if strings.Contains(contentEncoding, "deflate") {
+		if zr, zrErr := zlib.NewReader(resp.Body); zrErr == nil {
+			defer zr.Close()
+			reader = zr
+		}
+	}
+
+	bodyBytes, readErr := io.ReadAll(reader)
+	if readErr != nil {
+		http.Error(w, fmt.Sprintf("failed to read response: %v", readErr), http.StatusInternalServerError)
+		return
+	}
+
+	// Copy non-restrictive headers from upstream
 	for k, vv := range resp.Header {
 		lk := strings.ToLower(k)
 		if lk == "x-frame-options" ||
@@ -113,7 +134,12 @@ func (h *Handler) handleBrowseProxy(w http.ResponseWriter, r *http.Request) {
 			lk == "content-security-policy-report-only" ||
 			lk == "cross-origin-opener-policy" ||
 			lk == "cross-origin-embedder-policy" ||
-			lk == "cross-origin-resource-policy" {
+			lk == "cross-origin-resource-policy" ||
+			lk == "permissions-policy" ||
+			lk == "content-disposition" ||
+			lk == "x-content-type-options" ||
+			lk == "content-encoding" ||
+			lk == "content-length" {
 			continue
 		}
 		for _, v := range vv {
@@ -124,31 +150,31 @@ func (h *Handler) handleBrowseProxy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Del("Content-Security-Policy")
 	w.Header().Del("X-Frame-Options")
+	w.Header().Del("X-Content-Type-Options")
+	w.Header().Del("Content-Disposition")
+	w.Header().Del("Content-Encoding")
+	w.Header().Del("Content-Length")
 
-	cType := resp.Header.Get("Content-Type")
-	isHTML := strings.Contains(strings.ToLower(cType), "text/html")
+	cType := strings.ToLower(resp.Header.Get("Content-Type"))
+	sniffLen := len(bodyBytes)
+	if sniffLen > 512 {
+		sniffLen = 512
+	}
+	bodyPrefix := strings.TrimSpace(strings.ToLower(string(bodyBytes[:sniffLen])))
+	isHTML := strings.Contains(cType, "text/html") ||
+		strings.Contains(cType, "application/xhtml+xml") ||
+		strings.HasPrefix(bodyPrefix, "<!doctype html") ||
+		strings.HasPrefix(bodyPrefix, "<html") ||
+		strings.Contains(bodyPrefix, "<head") ||
+		strings.Contains(bodyPrefix, "<body")
 
 	if !isHTML {
 		w.WriteHeader(resp.StatusCode)
-		_, _ = io.Copy(w, resp.Body)
+		_, _ = w.Write(bodyBytes)
 		return
 	}
 
-	var reader io.Reader = resp.Body
-	if resp.Header.Get("Content-Encoding") == "gzip" {
-		gz, gzErr := gzip.NewReader(resp.Body)
-		if gzErr == nil {
-			defer gz.Close()
-			reader = gz
-			w.Header().Del("Content-Encoding")
-		}
-	}
-
-	bodyBytes, readErr := io.ReadAll(reader)
-	if readErr != nil {
-		http.Error(w, fmt.Sprintf("failed to read response: %v", readErr), http.StatusInternalServerError)
-		return
-	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 
 	htmlStr := string(bodyBytes)
 	baseURL := parsedTarget.String()
@@ -211,7 +237,6 @@ func (h *Handler) handleBrowseProxy(w http.ResponseWriter, r *http.Request) {
 		htmlStr = injection + htmlStr
 	}
 
-	w.Header().Del("Content-Length")
 	if resp.StatusCode >= 400 {
 		w.WriteHeader(http.StatusOK)
 	} else {

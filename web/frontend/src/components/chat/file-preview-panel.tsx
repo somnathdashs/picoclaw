@@ -280,11 +280,42 @@ export function FilePreviewPanel({ file, onClose }: FilePreviewPanelProps) {
     [file.filename, file.contentType],
   )
 
+  const [fileSize, setFileSize] = useState<number | undefined>(file.size)
+
   const fileUrl = useMemo(() => {
     if (file.url) return file.url
     if (file.path) return buildWorkspaceFileUrl(file.path)
     return ""
   }, [file.url, file.path])
+
+  const downloadUrl = useMemo(() => {
+    if (!fileUrl) return ""
+    if (fileUrl.startsWith("data:") || fileUrl.startsWith("blob:")) return fileUrl
+    const sep = fileUrl.includes("?") ? "&" : "?"
+    return `${fileUrl}${sep}download=1`
+  }, [fileUrl])
+
+  useEffect(() => {
+    setFileSize(file.size)
+    if (
+      (file.size === undefined || file.size <= 0) &&
+      fileUrl &&
+      !fileUrl.startsWith("data:") &&
+      !fileUrl.startsWith("blob:")
+    ) {
+      fetch(fileUrl, { method: "HEAD" })
+        .then((res) => {
+          const len = res.headers.get("content-length")
+          if (len) {
+            const bytes = parseInt(len, 10)
+            if (Number.isFinite(bytes) && bytes > 0) {
+              setFileSize(bytes)
+            }
+          }
+        })
+        .catch(() => {})
+    }
+  }, [file.size, fileUrl])
 
   // Convert base64 data URLs for PDFs to object URLs for reliable browser embedding
   useEffect(() => {
@@ -481,7 +512,7 @@ export function FilePreviewPanel({ file, onClose }: FilePreviewPanelProps) {
               {file.filename}
             </h2>
             <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <span>{formatFileSize(file.size)}</span>
+              <span>{formatFileSize(fileSize)}</span>
               <span>•</span>
               <span className="uppercase font-mono">{ext || typeMeta.label}</span>
             </div>
@@ -498,7 +529,7 @@ export function FilePreviewPanel({ file, onClose }: FilePreviewPanelProps) {
               title={t("chat.downloadFile", "Download file")}
               aria-label={t("chat.downloadFile", "Download file")}
             >
-              <a href={fileUrl} download={file.filename}>
+              <a href={downloadUrl} download={file.filename}>
                 <IconDownload className="size-4" />
               </a>
             </Button>
@@ -538,7 +569,7 @@ export function FilePreviewPanel({ file, onClose }: FilePreviewPanelProps) {
                     Unable to display PDF directly in browser.
                   </p>
                   <Button asChild size="sm" variant="outline" className="text-xs h-7">
-                    <a href={fileUrl} download={file.filename}>
+                    <a href={downloadUrl} download={file.filename}>
                       <IconDownload className="size-3.5 mr-1.5" />
                       Download PDF
                     </a>
@@ -611,7 +642,7 @@ export function FilePreviewPanel({ file, onClose }: FilePreviewPanelProps) {
                 <IconFile className="size-10 text-muted-foreground mx-auto opacity-50" />
                 <div className="text-xs text-destructive font-medium">{loadError}</div>
                 <Button asChild size="sm" variant="outline" className="text-xs h-7">
-                  <a href={fileUrl} download={file.filename}>Download Document</a>
+                  <a href={downloadUrl} download={file.filename}>Download Document</a>
                 </Button>
               </div>
             ) : (
@@ -739,7 +770,7 @@ export function FilePreviewPanel({ file, onClose }: FilePreviewPanelProps) {
               {file.filename}
             </div>
             <div className="text-xs text-muted-foreground mb-6 font-medium">
-              {formatFileSize(file.size)}
+              {formatFileSize(fileSize)}
             </div>
             <audio controls className="w-full max-w-sm shadow-md rounded-full" src={fileUrl}>
               Your browser does not support audio playback.
@@ -827,7 +858,7 @@ export function FilePreviewPanel({ file, onClose }: FilePreviewPanelProps) {
                 {file.filename}
               </div>
               <div className="text-xs text-muted-foreground font-medium">
-                ({formatFileSize(file.size)})
+                ({formatFileSize(fileSize)})
               </div>
             </div>
 
@@ -844,7 +875,7 @@ export function FilePreviewPanel({ file, onClose }: FilePreviewPanelProps) {
                   <span>View as Text / Code</span>
                 </Button>
                 <a
-                  href={fileUrl}
+                  href={downloadUrl}
                   download={file.filename}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow-sm hover:bg-primary/90 active:scale-95 transition"
                 >

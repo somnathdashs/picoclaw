@@ -456,13 +456,16 @@ export function ChatPage() {
           m.role === "assistant" &&
           m.kind !== "thought" &&
           m.kind !== "tool_calls" &&
-          Boolean(m.content && m.content.trim())
+          Boolean(
+            (m.content && m.content.trim()) ||
+            (m.attachments && m.attachments.length > 0)
+          )
         ) {
           hasFinishedNormal = true
           break
         }
       }
-      if (!hasFinishedNormal) return true
+      if (!hasFinishedNormal) return isTyping
     }
 
     if (
@@ -472,7 +475,7 @@ export function ChatPage() {
         (Boolean(lastMsg.toolCalls && lastMsg.toolCalls.length > 0) &&
           !lastMsg.content.trim()))
     ) {
-      return true
+      return isTyping
     }
 
     return false
